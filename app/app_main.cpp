@@ -56,14 +56,12 @@ struct KeyBinding {
 };
 
 static KeyBinding keyBindings[16] = {
-    {KEY_ID_SOL1_F, 1, +1}, {KEY_ID_SOL1_B, 1, -1},
-    {KEY_ID_SOL2_F, 2, +1}, {KEY_ID_SOL2_B, 2, -1},
-    {KEY_ID_SOL3_F, 3, +1}, {KEY_ID_SOL3_B, 3, -1},
-    {KEY_ID_SOL4_F, 4, +1}, {KEY_ID_SOL4_B, 4, -1},
-    {KEY_ID_SOL5_F, 5, +1}, {KEY_ID_SOL5_B, 5, -1},
-    {KEY_ID_SOL6_F, 6, +1}, {KEY_ID_SOL6_B, 6, -1},
-    {KEY_ID_SOL7_F, 7, +1}, {KEY_ID_SOL7_B, 7, -1},
-    {KEY_ID_SOL8_F, 8, +1}, {KEY_ID_SOL8_B, 8, -1},
+    {KEY_ID_SOL1_F, 1, +1}, {KEY_ID_SOL1_B, 1, -1}, {KEY_ID_SOL2_F, 2, +1},
+    {KEY_ID_SOL2_B, 2, -1}, {KEY_ID_SOL3_F, 3, +1}, {KEY_ID_SOL3_B, 3, -1},
+    {KEY_ID_SOL4_F, 4, +1}, {KEY_ID_SOL4_B, 4, -1}, {KEY_ID_SOL5_F, 5, +1},
+    {KEY_ID_SOL5_B, 5, -1}, {KEY_ID_SOL6_F, 6, +1}, {KEY_ID_SOL6_B, 6, -1},
+    {KEY_ID_SOL7_F, 7, +1}, {KEY_ID_SOL7_B, 7, -1}, {KEY_ID_SOL8_F, 8, +1},
+    {KEY_ID_SOL8_B, 8, -1},
 };
 
 // Track which bindings we actually “accepted” on press
@@ -127,8 +125,10 @@ void app_init() {
     chargerOn = false;
 
     // Keypad wiring
-    const uint8_t A[5] = {PIN_KB_A0, PIN_KB_A1, PIN_KB_A2, PIN_KB_A3, PIN_KB_A4};
-    const uint8_t B[5] = {PIN_KB_B0, PIN_KB_B1, PIN_KB_B2, PIN_KB_B3, PIN_KB_B4};
+    const uint8_t A[5] = {PIN_KB_A0, PIN_KB_A1, PIN_KB_A2, PIN_KB_A3,
+                          PIN_KB_A4};
+    const uint8_t B[5] = {PIN_KB_B0, PIN_KB_B1, PIN_KB_B2, PIN_KB_B3,
+                          PIN_KB_B4};
     keypad_init(A, B);
 
     // Battery monitor
@@ -138,9 +138,6 @@ void app_init() {
     }
 
     battery_setLowThreshold(20.5); // for example
-
-    pca9685_init();           // Default address 0x40
-    pca9685_setPWMFreq(1000); // 1 kHz, good for solenoids
 
     // Solenoids (includes PCA9685 + Sol0 setup)
     if (solenoid_init() != RES_OK) {
@@ -181,15 +178,12 @@ void app_loop() {
         haveBatterySample = true;
         charger_update(v);
     }
-
-
 }
 
 // =========================================================
 // Key handling
 // =========================================================
-static void handle_key_event(const KeyEvent &evt)
-{
+static void handle_key_event(const KeyEvent &evt) {
     int idx = find_binding_for_key(evt.id);
     if (idx < 0) {
         // Unknown key – might be one of the unused 34 “ghost” IDs
@@ -206,18 +200,15 @@ static void handle_key_event(const KeyEvent &evt)
     }
 }
 
-static int find_binding_for_key(uint8_t keyId)
-{
+static int find_binding_for_key(uint8_t keyId) {
     for (int i = 0; i < 16; ++i) {
-        if (keyBindings[i].keyId == keyId)
-            return i;
+        if (keyBindings[i].keyId == keyId) return i;
     }
     return -1;
 }
 
 // Press logic: first key in a pair “wins”
-static void handle_binding_press(uint8_t bindIndex)
-{
+static void handle_binding_press(uint8_t bindIndex) {
     KeyBinding &b = keyBindings[bindIndex];
 
     if (b.keyId == 0xFF) {
@@ -227,7 +218,7 @@ static void handle_binding_press(uint8_t bindIndex)
     }
 
     uint8_t pair = b.pair;
-    int8_t dir   = b.dir;
+    int8_t dir = b.dir;
 
     if (pair < 1 || pair > 8) return;
 
@@ -256,8 +247,7 @@ static void handle_binding_press(uint8_t bindIndex)
 }
 
 // Release logic: undo only if we accepted this key on press
-static void handle_binding_release(uint8_t bindIndex)
-{
+static void handle_binding_release(uint8_t bindIndex) {
     if (!keyAccepted[bindIndex]) {
         // We ignored this key's press earlier; ignore release too.
         return;
@@ -265,7 +255,7 @@ static void handle_binding_release(uint8_t bindIndex)
 
     KeyBinding &b = keyBindings[bindIndex];
     uint8_t pair = b.pair;
-    int8_t dir   = b.dir;
+    int8_t dir = b.dir;
 
     if (pair < 1 || pair > 8) return;
 
@@ -299,10 +289,8 @@ static void handle_binding_release(uint8_t bindIndex)
 //   Backward press  → TRIPLE
 //   Backward release→ CLICK
 // ----------------------------------------------------------
-static void buzzer_for_key(uint8_t /*pair*/, int8_t dir, bool press)
-{
-    if (buzzer_isBusy())
-        return;
+static void buzzer_for_key(uint8_t /*pair*/, int8_t dir, bool press) {
+    if (buzzer_isBusy()) return;
 
     if (dir > 0) {
         // Forward side
@@ -324,8 +312,7 @@ static void buzzer_for_key(uint8_t /*pair*/, int8_t dir, bool press)
 // =========================================================
 // Charger control
 // =========================================================
-static void charger_update(float vbat)
-{
+static void charger_update(float vbat) {
     // Hysteresis: ON below 24V, OFF above 28V
     if (!chargerOn && vbat <= VBAT_CHARGE_ON_V) {
         chargerOn = true;
@@ -337,8 +324,7 @@ static void charger_update(float vbat)
         if (!buzzer_isBusy()) {
             buzzer_play(BUZ_PAT_OK);
         }
-    }
-    else if (chargerOn && vbat >= VBAT_CHARGE_OFF_V) {
+    } else if (chargerOn && vbat >= VBAT_CHARGE_OFF_V) {
         chargerOn = false;
         hal_gpio_write(PIN_CHARGE_RELAY, false);
         led_setMode(LED_MODE_NORMAL);
@@ -357,19 +343,17 @@ static void charger_update(float vbat)
 // Charging: faster blink
 // Error: solid ON
 // =========================================================
-static void led_setMode(LedMode mode)
-{
-    if (mode == ledMode)
-        return;
+static void led_setMode(LedMode mode) {
+    if (mode == ledMode) return;
 
     ledMode = mode;
 
     switch (ledMode) {
     case LED_MODE_NORMAL:
-        ledIntervalMs = 500;   // 1 Hz blink
+        ledIntervalMs = 500; // 1 Hz blink
         break;
     case LED_MODE_CHARGING:
-        ledIntervalMs = 200;   // faster blink
+        ledIntervalMs = 200; // faster blink
         break;
     case LED_MODE_ERROR:
         // solid ON, no blinking
@@ -383,8 +367,7 @@ static void led_setMode(LedMode mode)
     hal_gpio_write(PIN_LED_STATUS, ledState);
 }
 
-static void led_task()
-{
+static void led_task() {
     if (ledMode == LED_MODE_ERROR) {
         // solid ON, nothing to do
         return;

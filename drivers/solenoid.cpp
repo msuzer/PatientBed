@@ -1,29 +1,26 @@
 #include "solenoid.h"
-#include "pca9685.h"
 #include "hal_gpio.h"
-#include "pins.h"   // for SOL0_MAIN (A2)
+#include "pca9685.h"
+#include "pins.h" // for SOL0_MAIN (A2)
 
-static bool sol_state[16] = {0};   // tracks PCA9685 outputs
-static bool sol0_state = false;    // direct-pin solenoid
-static uint8_t active_count = 0;   // how many of Sol1..Sol8 are ON
+static bool sol_state[16] = {0}; // tracks PCA9685 outputs
+static bool sol0_state = false;  // direct-pin solenoid
+static uint8_t active_count = 0; // how many of Sol1..Sol8 are ON
 
 // ------------------------------------------------------
 // Helper: apply Sol0 logic automatically
 // ------------------------------------------------------
-static Result update_sol0()
-{
+static Result update_sol0() {
     bool should_on = (active_count > 0);
 
-    if (should_on == sol0_state)
-        return RES_OK; // no change
+    if (should_on == sol0_state) return RES_OK; // no change
 
     sol0_state = should_on;
     return hal_gpio_write(PIN_SOL0_MAIN, should_on);
 }
 
 // ------------------------------------------------------
-Result solenoid_init()
-{
+Result solenoid_init() {
     Result r;
 
     // Init PCA9685 first
@@ -38,7 +35,8 @@ Result solenoid_init()
     if (r != RES_OK) return r;
 
     // Clear internal state
-    for (int i = 0; i < 16; i++) sol_state[i] = false;
+    for (int i = 0; i < 16; i++)
+        sol_state[i] = false;
     sol0_state = false;
     active_count = 0;
 
@@ -48,13 +46,11 @@ Result solenoid_init()
 // ------------------------------------------------------
 // Set raw channel on/off (with tracking and Sol0 update)
 // ------------------------------------------------------
-Result solenoid_set(SolenoidChannel ch, bool on)
-{
+Result solenoid_set(SolenoidChannel ch, bool on) {
     uint8_t c = (uint8_t)ch;
 
     bool was_on = sol_state[c];
-    if (was_on == on)
-        return RES_OK;  // no change needed
+    if (was_on == on) return RES_OK; // no change needed
 
     // Pair conflict prevention
     // uint8_t pair = c / 2;
@@ -72,18 +68,18 @@ Result solenoid_set(SolenoidChannel ch, bool on)
     sol_state[c] = on;
 
     // Update active_count
-    if (on) active_count++;
-    else    active_count--;
+    if (on)
+        active_count++;
+    else
+        active_count--;
 
     // Apply automatic Sol0 logic
     return update_sol0();
 }
 
 // ------------------------------------------------------
-static bool get_pair(uint8_t pair, SolenoidChannel *fwd, SolenoidChannel *bwd)
-{
-    if (pair < 1 || pair > 8)
-        return false;
+static bool get_pair(uint8_t pair, SolenoidChannel *fwd, SolenoidChannel *bwd) {
+    if (pair < 1 || pair > 8) return false;
 
     uint8_t base = (pair - 1) * 2;
     *fwd = (SolenoidChannel)(base + 0);
@@ -92,8 +88,7 @@ static bool get_pair(uint8_t pair, SolenoidChannel *fwd, SolenoidChannel *bwd)
 }
 
 // ------------------------------------------------------
-Result solenoid_forward(uint8_t pair)
-{
+Result solenoid_forward(uint8_t pair) {
     SolenoidChannel f, b;
     if (!get_pair(pair, &f, &b)) return RES_PARAM;
 
@@ -105,8 +100,7 @@ Result solenoid_forward(uint8_t pair)
 }
 
 // ------------------------------------------------------
-Result solenoid_backward(uint8_t pair)
-{
+Result solenoid_backward(uint8_t pair) {
     SolenoidChannel f, b;
     if (!get_pair(pair, &f, &b)) return RES_PARAM;
 
@@ -117,8 +111,7 @@ Result solenoid_backward(uint8_t pair)
 }
 
 // ------------------------------------------------------
-Result solenoid_stopPair(uint8_t pair)
-{
+Result solenoid_stopPair(uint8_t pair) {
     SolenoidChannel f, b;
     if (!get_pair(pair, &f, &b)) return RES_PARAM;
 
@@ -132,21 +125,17 @@ Result solenoid_stopPair(uint8_t pair)
 // Unified drive command
 // direction: +1=forward, -1=backward, 0=stop
 // ------------------------------------------------------
-Result solenoid_drive(uint8_t pair, int direction)
-{
-    if (direction > 0)  return solenoid_forward(pair);
-    if (direction < 0)  return solenoid_backward(pair);
+Result solenoid_drive(uint8_t pair, int direction) {
+    if (direction > 0) return solenoid_forward(pair);
+    if (direction < 0) return solenoid_backward(pair);
     return solenoid_stopPair(pair);
 }
 
 // ------------------------------------------------------
-Result solenoid_allOff()
-{
+Result solenoid_allOff() {
     Result r;
-    for (uint8_t c = 0; c < 16; c++)
-    {
-        if (sol_state[c])
-        {
+    for (uint8_t c = 0; c < 16; c++) {
+        if (sol_state[c]) {
             r = solenoid_set((SolenoidChannel)c, false);
             if (r != RES_OK) return r;
         }

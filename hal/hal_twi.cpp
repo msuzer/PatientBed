@@ -2,12 +2,11 @@
 #include <Wire.h>
 
 Result hal_twi_init() {
-    Wire.begin();   // assumes SDA=A4, SCL=A5
+    Wire.begin(); // assumes SDA=A4, SCL=A5
     return RES_OK;
 }
 
-Result hal_twi_write(uint8_t addr, const uint8_t *data, uint8_t len)
-{
+Result hal_twi_write(uint8_t addr, const uint8_t *data, uint8_t len) {
     if (!data || len == 0) return RES_PARAM;
 
     Wire.beginTransmission(addr);
@@ -19,8 +18,7 @@ Result hal_twi_write(uint8_t addr, const uint8_t *data, uint8_t len)
     return RES_ERR;
 }
 
-Result hal_twi_read(uint8_t addr, uint8_t *data, uint8_t len)
-{
+Result hal_twi_read(uint8_t addr, uint8_t *data, uint8_t len) {
     if (!data || len == 0) return RES_PARAM;
 
     uint8_t received = Wire.requestFrom(addr, len);

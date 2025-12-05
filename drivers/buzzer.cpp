@@ -29,8 +29,7 @@ static const char *patterns[] = {
 };
 
 // -------------------------------------------------------
-Result buzzer_init(uint8_t pin)
-{
+Result buzzer_init(uint8_t pin) {
     buz_pin = pin;
     hal_gpio_mode(pin, OUTPUT);
     hal_gpio_write(pin, false);
@@ -40,16 +39,13 @@ Result buzzer_init(uint8_t pin)
 }
 
 // -------------------------------------------------------
-bool buzzer_isBusy()
-{
+bool buzzer_isBusy() {
     return busy;
 }
 
 // -------------------------------------------------------
-static Result buzzer_startPattern(const char *pat)
-{
-    if (!pat || strlen(pat) == 0)
-        return RES_PARAM;
+static Result buzzer_startPattern(const char *pat) {
+    if (!pat || strlen(pat) == 0) return RES_PARAM;
 
     active_pattern = pat;
     pat_pos = 0;
@@ -64,16 +60,12 @@ static Result buzzer_startPattern(const char *pat)
 // -------------------------------------------------------
 // Play a built-in pattern
 // -------------------------------------------------------
-Result buzzer_play(uint8_t pattern_id)
-{
-    if (pattern_id >= sizeof(patterns) / sizeof(patterns[0]))
-        return RES_PARAM;
+Result buzzer_play(uint8_t pattern_id) {
+    if (pattern_id >= sizeof(patterns) / sizeof(patterns[0])) return RES_PARAM;
 
-    if (busy)
-        return RES_BUSY;
+    if (busy) return RES_BUSY;
 
-    if (pattern_id == BUZ_PAT_CUSTOM)
-        return RES_PARAM;
+    if (pattern_id == BUZ_PAT_CUSTOM) return RES_PARAM;
 
     return buzzer_startPattern(patterns[pattern_id]);
 }
@@ -81,10 +73,8 @@ Result buzzer_play(uint8_t pattern_id)
 // -------------------------------------------------------
 // Play text pattern like ".-.-"
 // -------------------------------------------------------
-Result buzzer_playPattern(const char *pattern)
-{
-    if (busy)
-        return RES_BUSY;
+Result buzzer_playPattern(const char *pattern) {
+    if (busy) return RES_BUSY;
 
     return buzzer_startPattern(pattern);
 }
@@ -92,21 +82,17 @@ Result buzzer_playPattern(const char *pattern)
 // -------------------------------------------------------
 // Non-blocking state machine
 // -------------------------------------------------------
-void buzzer_task()
-{
-    if (!busy || !active_pattern)
-        return;
+void buzzer_task() {
+    if (!busy || !active_pattern) return;
 
     uint32_t now = millis();
 
-    if (now < stage_end_time)
-        return; // waiting
+    if (now < stage_end_time) return; // waiting
 
     // Advance to next stage
     char c = active_pattern[pat_pos];
 
-    if (c == '\0')
-    {
+    if (c == '\0') {
         // Finished entire pattern
         hal_gpio_write(buz_pin, false);
         busy = false;
@@ -114,8 +100,7 @@ void buzzer_task()
         return;
     }
 
-    if (c == '.' || c == '-')
-    {
+    if (c == '.' || c == '-') {
         // Turn buzzer ON
         is_on = true;
         hal_gpio_write(buz_pin, true);
@@ -125,26 +110,21 @@ void buzzer_task()
 
         // Move to next symbol after ON time elapses
         pat_pos++;
-    }
-    else if (c == ' ')
-    {
+    } else if (c == ' ') {
         // Explicit silence
         hal_gpio_write(buz_pin, false);
         is_on = false;
 
         stage_end_time = now + GAP_TIME;
         pat_pos++;
-    }
-    else
-    {
+    } else {
         // Unknown char, skip
         pat_pos++;
         stage_end_time = now; // re-evaluate immediately
     }
 
     // After ON stage, ensure OFF gap
-    if (!is_on)
-    {
+    if (!is_on) {
         hal_gpio_write(buz_pin, false);
     }
 }
