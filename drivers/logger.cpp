@@ -1,7 +1,7 @@
 #include "logger.h"
 #include <Arduino.h>
 
-static LogLevel current_level = LOG_INFO;
+static LogLevel current_level = LOG_DEBUG;
 
 // -----------------------------------------
 void logger_init(uint32_t baud) {

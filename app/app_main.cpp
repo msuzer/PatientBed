@@ -1,4 +1,5 @@
 #include "app_main.h"
+#include <avr/interrupt.h>
 #include "battery.h"
 #include "buzzer.h"
 #include "hal_gpio.h"
@@ -31,23 +32,34 @@ enum LedMode : uint8_t {
 // matrix-mapper tool.
 // ---------------------------------------------------------
 
+// ---------------------------------------------------------
+// Key → solenoid mapping
+//
+// We currently don't know the actual keypad IDs, so
+// define placeholders and fill them after you run the
+// matrix-mapper tool.
+// ---------------------------------------------------------
+// 58, 48, 68, 38, 98, 8, 28, 78
 // TODO: replace these with actual KeyEvent.id values once known
-#define KEY_ID_SOL1_F 0xFF
-#define KEY_ID_SOL1_B 0xFF
-#define KEY_ID_SOL2_F 0xFF
-#define KEY_ID_SOL2_B 0xFF
-#define KEY_ID_SOL3_F 0xFF
-#define KEY_ID_SOL3_B 0xFF
-#define KEY_ID_SOL4_F 0xFF
-#define KEY_ID_SOL4_B 0xFF
-#define KEY_ID_SOL5_F 0xFF
-#define KEY_ID_SOL5_B 0xFF
-#define KEY_ID_SOL6_F 0xFF
-#define KEY_ID_SOL6_B 0xFF
-#define KEY_ID_SOL7_F 0xFF
-#define KEY_ID_SOL7_B 0xFF
-#define KEY_ID_SOL8_F 0xFF
-#define KEY_ID_SOL8_B 0xFF
+// from keypad 1
+#define KEY_ID_SOL1_F 25
+#define KEY_ID_SOL1_B 52
+#define KEY_ID_SOL2_F 24
+#define KEY_ID_SOL2_B 42
+#define KEY_ID_SOL3_F 26
+#define KEY_ID_SOL3_B 62
+#define KEY_ID_SOL4_F 75
+#define KEY_ID_SOL4_B 57
+#define KEY_ID_SOL5_F 74
+#define KEY_ID_SOL5_B 47
+
+// from keypad 2
+#define KEY_ID_SOL6_F 58
+#define KEY_ID_SOL6_B 48
+#define KEY_ID_SOL7_F 68
+#define KEY_ID_SOL7_B 38
+#define KEY_ID_SOL8_F 98
+#define KEY_ID_SOL8_B 8
 
 struct KeyBinding {
     uint8_t keyId; // keypad event id (0..49)
@@ -74,6 +86,10 @@ enum PairState : uint8_t { PAIR_IDLE = 0, PAIR_FWD, PAIR_BWD };
 
 static PairState pairState[9] = {PAIR_IDLE}; // index 1..8 used
 
+const uint8_t keypadPins[10] = {PIN_KB_A0, PIN_KB_A1, PIN_KB_A2, PIN_KB_A3, PIN_KB_A4, 
+    PIN_KB_B0, PIN_KB_B1, PIN_KB_B2, PIN_KB_B3, PIN_KB_B4};
+JapaneseKeypad keypad(keypadPins);
+
 // ---------------------------------------------------------
 // Charger + battery state
 // ---------------------------------------------------------
@@ -92,7 +108,7 @@ static bool ledState = false;
 // ---------------------------------------------------------
 // Forward declarations
 // ---------------------------------------------------------
-static void handle_key_event(const KeyEvent &evt);
+static void handle_key_event(uint8_t keyIndex, bool pressed);
 static void handle_binding_press(uint8_t bindIndex);
 static void handle_binding_release(uint8_t bindIndex);
 
@@ -106,6 +122,8 @@ static void led_task();
 // =========================================================
 // app_init
 // =========================================================
+static void setup_timer1_10ms();
+
 void app_init() {
     logger_init(115200);
     logger_setLevel(LOG_INFO);
@@ -124,12 +142,11 @@ void app_init() {
     hal_gpio_write(PIN_CHARGE_RELAY, false);
     chargerOn = false;
 
-    // Keypad wiring
-    const uint8_t A[5] = {PIN_KB_A0, PIN_KB_A1, PIN_KB_A2, PIN_KB_A3,
-                          PIN_KB_A4};
-    const uint8_t B[5] = {PIN_KB_B0, PIN_KB_B1, PIN_KB_B2, PIN_KB_B3,
-                          PIN_KB_B4};
-    keypad_init(A, B);
+    keypad.begin();
+    keypad.setCallback(handle_key_event);
+    log_info("Keypad initialized");
+
+    setup_timer1_10ms();
 
     // Battery monitor
     if (battery_init(PIN_VBAT_ADC) != RES_OK) {
@@ -160,16 +177,11 @@ void app_init() {
 // =========================================================
 void app_loop() {
     // 1) Periodic subsystem tasks
-    keypad_task();
+    // Dispatch queued keypad events on main thread (ISR enqueues)
+    keypad.dispatch();
     battery_task();
     buzzer_task();
     led_task();
-
-    // 2) Process keypad events → solenoids + buzzer + log
-    KeyEvent evt;
-    while (keypad_getEvent(&evt)) {
-        handle_key_event(evt);
-    }
 
     // 3) Read battery and update charger state
     float v;
@@ -180,11 +192,33 @@ void app_loop() {
     }
 }
 
+// Timer1 Compare Match A ISR: fires every 10 ms
+ISR(TIMER1_COMPA_vect) {
+    keypad.tick10ms();
+}
+
+// Helper: Configure Timer1 to generate 10 ms interrupts on ATmega328P @16 MHz
+static void setup_timer1_10ms() {
+    // CTC mode, prescaler 64 → tick = 4 µs; 10 ms / 4 µs = 2500 → OCR1A = 2499
+    cli();
+    TCCR1A = 0;                 // normal operation
+    TCCR1B = 0;                 // stop timer to configure
+    TCCR1B |= (1 << WGM12);     // CTC mode (Clear Timer on Compare Match)
+    OCR1A = 2499;               // compare value for 10 ms
+    TCNT1 = 0;                  // reset counter
+    TIFR1 |= (1 << OCF1A);      // clear any pending compare match
+    TIMSK1 |= (1 << OCIE1A);    // enable compare A match interrupt
+    TCCR1B |= (1 << CS11) | (1 << CS10); // prescaler 64
+    sei();
+}
+
 // =========================================================
 // Key handling
 // =========================================================
-static void handle_key_event(const KeyEvent &evt) {
-    int idx = find_binding_for_key(evt.id);
+static void handle_key_event(uint8_t keyIndex, bool pressed) {
+    // log_info_kv("Key", pressed ? "Press" : "Release", keyIndex);
+
+    int idx = find_binding_for_key(keyIndex);
     if (idx < 0) {
         // Unknown key – might be one of the unused 34 “ghost” IDs
         log_debug("Unmapped key event");
@@ -193,7 +227,7 @@ static void handle_key_event(const KeyEvent &evt) {
 
     // const KeyBinding &bind = keyBindings[idx];
 
-    if (evt.type == KEY_EVENT_PRESS) {
+    if (pressed) {
         handle_binding_press((uint8_t)idx);
     } else {
         handle_binding_release((uint8_t)idx);
@@ -241,6 +275,7 @@ static void handle_binding_press(uint8_t bindIndex) {
     keyAccepted[bindIndex] = true;
 
     log_info_kv("key press", "pair", pair);
+    log_info_kv("key press", "dir", pairState[pair]);
 
     // Buzzer feedback
     buzzer_for_key(pair, dir, true);
@@ -274,6 +309,7 @@ static void handle_binding_release(uint8_t bindIndex) {
         keyAccepted[bindIndex] = false;
 
         log_info_kv("key release", "pair", pair);
+        log_info_kv("key release", "dir", pairState[pair]);
 
         // Buzzer feedback
         buzzer_for_key(pair, dir, false);
@@ -319,6 +355,7 @@ static void charger_update(float vbat) {
         hal_gpio_write(PIN_CHARGE_RELAY, true);
         led_setMode(LED_MODE_CHARGING);
         log_warn("Charging started");
+        log_info_kv("Vbat", "mV", (int)(vbat * 1000));
 
         // Optional: small beep
         if (!buzzer_isBusy()) {
@@ -329,6 +366,7 @@ static void charger_update(float vbat) {
         hal_gpio_write(PIN_CHARGE_RELAY, false);
         led_setMode(LED_MODE_NORMAL);
         log_info("Charging stopped");
+        log_info_kv("Vbat", "mV", (int)(vbat * 1000));
 
         // Optional: small beep (comment out if you prefer silent)
         if (!buzzer_isBusy()) {

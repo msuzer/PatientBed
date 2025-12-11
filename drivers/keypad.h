@@ -1,25 +1,42 @@
-#pragma once
-#include <stdint.h>
-#include <stdbool.h>
-#include "result.h"
+#ifndef JAPANESE_KEYPAD_H
+#define JAPANESE_KEYPAD_H
 
-#define KP_ROWS 5
-#define KP_COLS 5
-#define KP_KEYS (KP_ROWS * KP_COLS * 2)
+#include <Arduino.h>
 
-// Types of events
-typedef enum {
-    KEY_EVENT_PRESS = 1,
-    KEY_EVENT_RELEASE = 2
-} KeyEventType;
+class JapaneseKeypad {
+public:
+    static const uint8_t LINES = 10;
+    static const uint8_t KEY_COUNT = LINES * LINES;
+    // Number of consecutive detections required for a stable press
+    static const uint8_t DEBOUNCE_COUNT = 2;
 
-typedef struct {
-    uint8_t id;            // 0..49
-    KeyEventType type;     // PRESS / RELEASE
-} KeyEvent;
+    JapaneseKeypad(const uint8_t *pins);
 
-// Public API
-Result keypad_init(const uint8_t *pinsA, const uint8_t *pinsB);
+    void begin();       // Must be called from setup()
+    void tick10ms();    // Call from 10ms timer ISR: detection only (no callbacks)
+    void dispatch();    // Call from loop(): drain event queue and call callback
+    void setCallback(void (*cb)(uint8_t keyIndex, bool pressed));
 
-Result keypad_task();      // call frequently (every 2–5 ms)
-bool   keypad_getEvent(KeyEvent *evt);   // returns true if event available
+private:
+    const uint8_t *linePins;
+    void (*callback)(uint8_t keyIndex, bool pressed);
+
+    uint8_t keyMatrix[KEY_COUNT];
+    uint8_t lastState[KEY_COUNT];
+    uint8_t currentRow;
+
+    // Simple ring buffer to queue events from ISR to main thread
+    struct KeyEvt { uint8_t id; bool pressed; };
+    static const uint8_t EVT_QUEUE_SIZE = 16;
+    KeyEvt evtQueue[EVT_QUEUE_SIZE];
+    volatile uint8_t evtHead = 0; // write index (ISR)
+    volatile uint8_t evtTail = 0; // read index (main thread)
+
+    // Internal helpers
+    void enqueueEvent(uint8_t id, bool pressed);
+    void writeLine(uint8_t idx, bool value);
+    bool readLine(uint8_t idx);
+    bool getKeyState(uint8_t index);
+};
+
+#endif
