@@ -4,19 +4,20 @@
 #include "pins.h" // for SOL0_MAIN (A2)
 
 static bool sol_state[16] = {0}; // tracks PCA9685 outputs
-static bool sol0_state = false;  // direct-pin solenoid
-static uint8_t active_count = 0; // how many of Sol1..Sol8 are ON
+static int8_t active_count = 0; // how many of ch0 - ch15 are ON
 
 // ------------------------------------------------------
 // Helper: apply Sol0 logic automatically
 // ------------------------------------------------------
 static Result update_sol0() {
+    Result r = hal_gpio_write(PIN_PCA_OE, active_count > 0 ? LOW : HIGH);
+    if (r != RES_OK) return r;
+    
     bool should_on = (active_count > 0);
+    r = hal_gpio_write(PIN_SOL0_MAIN, should_on ? HIGH : LOW);
+    if (r != RES_OK) return r;
 
-    if (should_on == sol0_state) return RES_OK; // no change
-
-    sol0_state = should_on;
-    return hal_gpio_write(PIN_SOL0_MAIN, should_on);
+    return RES_OK;
 }
 
 // ------------------------------------------------------
@@ -25,6 +26,10 @@ Result solenoid_init() {
 
     // Init PCA9685 first
     r = pca9685_init();
+    if (r != RES_OK) return r;
+
+    // Init OE pin (active low)
+    r = hal_gpio_mode(PIN_PCA_OE, OUTPUT);
     if (r != RES_OK) return r;
 
     // Init Sol0 pin
@@ -37,7 +42,7 @@ Result solenoid_init() {
     // Clear internal state
     for (int i = 0; i < 16; i++)
         sol_state[i] = false;
-    sol0_state = false;
+
     active_count = 0;
 
     return RES_OK;
@@ -68,10 +73,11 @@ Result solenoid_set(SolenoidChannel ch, bool on) {
     sol_state[c] = on;
 
     // Update active_count
-    if (on)
-        active_count++;
-    else
-        active_count--;
+    if (on) {
+        if (active_count < 16) active_count++;
+    } else {
+        if (active_count > 0) active_count--;
+    }
 
     // Apply automatic Sol0 logic
     return update_sol0();

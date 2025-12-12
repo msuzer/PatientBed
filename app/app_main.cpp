@@ -14,6 +14,7 @@
 // ---------------------------------------------------------
 static const float VBAT_CHARGE_ON_V = 24.0f;  // start charging below this
 static const float VBAT_CHARGE_OFF_V = 28.0f; // stop charging above this
+static const float BATTERY_NOT_PRESENT_V = 15.0f; // below this, battery likely absent
 
 // ---------------------------------------------------------
 // Alive LED modes
@@ -26,40 +27,27 @@ enum LedMode : uint8_t {
 
 // ---------------------------------------------------------
 // Key → solenoid mapping
-//
-// We currently don't know the actual keypad IDs, so
-// define placeholders and fill them after you run the
-// matrix-mapper tool.
 // ---------------------------------------------------------
-
-// ---------------------------------------------------------
-// Key → solenoid mapping
-//
-// We currently don't know the actual keypad IDs, so
-// define placeholders and fill them after you run the
-// matrix-mapper tool.
-// ---------------------------------------------------------
-// 58, 48, 68, 38, 98, 8, 28, 78
-// TODO: replace these with actual KeyEvent.id values once known
+// Each solenoid pair has two keys: forward and backward
 // from keypad 1
-#define KEY_ID_SOL1_F 25
-#define KEY_ID_SOL1_B 52
-#define KEY_ID_SOL2_F 24
-#define KEY_ID_SOL2_B 42
-#define KEY_ID_SOL3_F 26
-#define KEY_ID_SOL3_B 62
-#define KEY_ID_SOL4_F 75
-#define KEY_ID_SOL4_B 57
-#define KEY_ID_SOL5_F 74
-#define KEY_ID_SOL5_B 47
+#define KEY_ID_SOL1_F 93
+#define KEY_ID_SOL1_B 39
+#define KEY_ID_SOL2_F 83
+#define KEY_ID_SOL2_B 38
+#define KEY_ID_SOL3_F 73
+#define KEY_ID_SOL3_B 37
+#define KEY_ID_SOL4_F 63
+#define KEY_ID_SOL4_B 36
+#define KEY_ID_SOL5_F 53
+#define KEY_ID_SOL5_B 35
 
 // from keypad 2
-#define KEY_ID_SOL6_F 58
-#define KEY_ID_SOL6_B 48
-#define KEY_ID_SOL7_F 68
-#define KEY_ID_SOL7_B 38
-#define KEY_ID_SOL8_F 98
-#define KEY_ID_SOL8_B 8
+#define KEY_ID_SOL6_F 49
+#define KEY_ID_SOL6_B 94
+#define KEY_ID_SOL7_F 48
+#define KEY_ID_SOL7_B 84
+#define KEY_ID_SOL8_F 47
+#define KEY_ID_SOL8_B 74
 
 struct KeyBinding {
     uint8_t keyId; // keypad event id (0..49)
@@ -86,8 +74,8 @@ enum PairState : uint8_t { PAIR_IDLE = 0, PAIR_FWD, PAIR_BWD };
 
 static PairState pairState[9] = {PAIR_IDLE}; // index 1..8 used
 
-const uint8_t keypadPins[10] = {PIN_KB_A0, PIN_KB_A1, PIN_KB_A2, PIN_KB_A3, PIN_KB_A4, 
-    PIN_KB_B0, PIN_KB_B1, PIN_KB_B2, PIN_KB_B3, PIN_KB_B4};
+const uint8_t keypadPins[10] = {PIN_KB_A0, PIN_KB_B4, PIN_KB_A1, PIN_KB_B3, PIN_KB_A2, 
+    PIN_KB_B2, PIN_KB_A3, PIN_KB_B1, PIN_KB_A4, PIN_KB_B0};
 JapaneseKeypad keypad(keypadPins);
 
 // ---------------------------------------------------------
@@ -119,11 +107,11 @@ static void charger_update(float vbat);
 static void led_setMode(LedMode mode);
 static void led_task();
 
+static void setup_timer1_10ms();
+
 // =========================================================
 // app_init
 // =========================================================
-static void setup_timer1_10ms();
-
 void app_init() {
     logger_init(115200);
     logger_setLevel(LOG_INFO);
@@ -188,7 +176,15 @@ void app_loop() {
     if (battery_getVoltage(&v) == RES_OK) {
         lastVbat = v;
         haveBatterySample = true;
-        charger_update(v);
+
+        if (haveBatterySample && v < BATTERY_NOT_PRESENT_V) {
+            // log_warn("Battery voltage very low, battery may be absent");
+            // hal_gpio_write(PIN_CHARGE_RELAY, false);
+            chargerOn = false;
+            // led_setMode(LED_MODE_NORMAL);
+        } else {
+            charger_update(v);
+        }
     }
 }
 
@@ -274,8 +270,10 @@ static void handle_binding_press(uint8_t bindIndex) {
     pairState[pair] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
     keyAccepted[bindIndex] = true;
 
-    log_info_kv("key press", "pair", pair);
-    log_info_kv("key press", "dir", pairState[pair]);
+    String str = "Sol";
+    str += pair;
+    str += (dir > 0) ? " FWD" : " BWD";
+    log_info(str.c_str());
 
     // Buzzer feedback
     buzzer_for_key(pair, dir, true);
@@ -308,8 +306,10 @@ static void handle_binding_release(uint8_t bindIndex) {
         pairState[pair] = PAIR_IDLE;
         keyAccepted[bindIndex] = false;
 
-        log_info_kv("key release", "pair", pair);
-        log_info_kv("key release", "dir", pairState[pair]);
+        String str = "Sol";
+        str += pair;
+        str += " IDLE";
+        log_info(str.c_str());
 
         // Buzzer feedback
         buzzer_for_key(pair, dir, false);

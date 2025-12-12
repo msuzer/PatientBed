@@ -12,10 +12,10 @@ void JapaneseKeypad::begin() {
         writeLine(i, true);
     }
 
+    delay(200);  // allow keypad to stabilize
+
     currentRow = 0;
     writeLine(currentRow, false);
-
-    delay(200);  // allow keypad to stabilize
 }
 
 void JapaneseKeypad::setCallback(void (*cb)(uint8_t keyIndex, bool pressed)) {
@@ -43,10 +43,11 @@ bool JapaneseKeypad::getKeyState(uint8_t index) {
 
 // ISR-friendly: detection only, no delays, no callbacks
 void JapaneseKeypad::tick10ms() {
-    // 1) Scan currently-driven row for event detection
-    uint8_t base = currentRow * LINES;
+    // 1) Scan the currently-driven row for event detection
+    const uint8_t scannedRow = currentRow;
+    uint8_t base = scannedRow * LINES;
     for (uint8_t col = 0; col < LINES; col++) {
-        if (col == currentRow) continue;
+        if (col == scannedRow) continue; // skip diagonal (unreachable)
         bool pressed = !readLine(col);
         uint8_t idx = base + col;
 
@@ -66,18 +67,20 @@ void JapaneseKeypad::tick10ms() {
     writeLine(nextRow, false);
     currentRow = nextRow;
 
-    // Edge detection: queue events for dispatcher
-    for (uint16_t i = 0; i < KEY_COUNT; i++) {
-        bool pressedNow = (keyMatrix[i] == DEBOUNCE_COUNT);
-        bool releasedNow = (keyMatrix[i] == 0);
-        bool wasPressed = lastState[i];
+    // 4) Edge detection for just-scanned row: queue events for dispatcher
+    for (uint8_t col = 0; col < LINES; col++) {
+        if (col == scannedRow) continue; // skip diagonal (unreachable)
+        uint8_t idx = base + col;
+        bool pressedNow = (keyMatrix[idx] == DEBOUNCE_COUNT);
+        bool releasedNow = (keyMatrix[idx] == 0);
+        bool wasPressed = lastState[idx];
 
         if (!wasPressed && pressedNow) {
-            lastState[i] = true;
-            enqueueEvent(i, true);
+            lastState[idx] = true;
+            enqueueEvent(idx, true);
         } else if (wasPressed && releasedNow) {
-            lastState[i] = false;
-            enqueueEvent(i, false);
+            lastState[idx] = false;
+            enqueueEvent(idx, false);
         }
     }
 }
