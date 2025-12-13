@@ -27,6 +27,15 @@ static void emit(LogLevel lvl, const char *prefix, const char *msg) {
     Serial.print("\r\n");
 }
 
+static void emitFlash(LogLevel lvl, const __FlashStringHelper *prefix, const __FlashStringHelper *msg) {
+    if (lvl < current_level) return;
+    if (!msg) return;
+
+    Serial.print(prefix);
+    Serial.print(msg);
+    Serial.print(F("\r\n"));
+}
+
 // -----------------------------------------
 void log_debug(const char *msg) {
     emit(LOG_DEBUG, "[DBG] ", msg);
@@ -44,6 +53,22 @@ void log_fatal(const char *msg) {
     emit(LOG_FATAL, "[FAT] ", msg);
 }
 
+void log_debug(const __FlashStringHelper *msg) {
+    emitFlash(LOG_DEBUG, F("[DBG] "), msg);
+}
+void log_info(const __FlashStringHelper *msg) {
+    emitFlash(LOG_INFO, F("[INF] "), msg);
+}
+void log_warn(const __FlashStringHelper *msg) {
+    emitFlash(LOG_WARN, F("[WRN] "), msg);
+}
+void log_error(const __FlashStringHelper *msg) {
+    emitFlash(LOG_ERROR, F("[ERR] "), msg);
+}
+void log_fatal(const __FlashStringHelper *msg) {
+    emitFlash(LOG_FATAL, F("[FAT] "), msg);
+}
+
 // -----------------------------------------
 void log_info_kv(const char *msg, const char *key, int value) {
     if (LOG_INFO < current_level) return;
@@ -57,4 +82,17 @@ void log_info_kv(const char *msg, const char *key, int value) {
 
     Serial.print(value);
     Serial.print("\r\n");
+}
+
+void log_info_kv(const __FlashStringHelper *msg, const __FlashStringHelper *key, int value) {
+    if (LOG_INFO < current_level) return;
+    if (!msg || !key) return;
+
+    Serial.print(F("[INF] "));
+    Serial.print(msg);
+    Serial.print(F(" "));
+    Serial.print(key);
+    Serial.print(F("="));
+    Serial.print(value);
+    Serial.print(F("\r\n"));
 }

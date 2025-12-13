@@ -1,6 +1,7 @@
 #include "battery.h"
 #include "hal_adc.h"
 #include <stdlib.h> // for NULL
+#include <Arduino.h> // for F() in potential logging
 
 // ------------------------------------------
 // Internal configuration
@@ -24,21 +25,8 @@ static const float ADC_TO_VBAT = (5.0f / 1023.0f) * ((56.0f + 10.0f) / 10.0f);
 static const float FILTER_ALPHA = 0.10f; // 10% new, 90% old
 
 // State
-static float filtered_vbat = 0.0f;
+static float filtered_vbat = 0.0f; // volts
 static bool initialized = false;
-
-// Low battery threshold (default 20V)
-static float low_threshold = 20.0f;
-
-// ------------------------------------------
-void battery_setLowThreshold(float volts) {
-    low_threshold = volts;
-}
-
-// ------------------------------------------
-bool battery_isLow() {
-    return (filtered_vbat < low_threshold);
-}
 
 // ------------------------------------------
 Result battery_init(uint8_t adc_channel) {
@@ -59,7 +47,7 @@ Result battery_init(uint8_t adc_channel) {
 // Non-blocking periodic update
 // Call every ~10ms
 // ------------------------------------------
-Result battery_task() {
+Result battery_poll() {
     if (!initialized) return RES_ERR;
 
     uint16_t raw = 0;
@@ -76,9 +64,11 @@ Result battery_task() {
 }
 
 // ------------------------------------------
-Result battery_getVoltage(float *out_voltage) {
-    if (!initialized || out_voltage == NULL) return RES_PARAM;
-
-    *out_voltage = filtered_vbat;
+Result battery_getMillivolts(int16_t *out_mV) {
+    if (!initialized || out_mV == NULL) return RES_PARAM;
+    int32_t mv = (int32_t)(filtered_vbat * 1000.0f);
+    if (mv < 0) mv = 0;
+    if (mv > 32767) mv = 32767; // clamp to int16_t
+    *out_mV = (int16_t)mv;
     return RES_OK;
 }

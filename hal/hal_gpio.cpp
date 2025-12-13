@@ -20,3 +20,11 @@ Result hal_gpio_read(uint8_t pin, bool *value_out) {
     *value_out = (digitalRead(pin) == HIGH);
     return RES_OK;
 }
+
+Result hal_gpio_toggle(uint8_t pin) {
+    if (pin > 21) return RES_PARAM;
+
+    bool current = (digitalRead(pin) == HIGH);
+    digitalWrite(pin, current ? LOW : HIGH);
+    return RES_OK;
+}

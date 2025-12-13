@@ -3,10 +3,10 @@
 #include <Arduino.h>
 #include <string.h>
 
-// Timing definitions (ms)
-static const uint16_t DOT_TIME = 50;
-static const uint16_t DASH_TIME = 150;
-static const uint16_t GAP_TIME = 50;
+// Timing definitions (ms) — snappier key feedback
+static const uint16_t DOT_TIME = 40;
+static const uint16_t DASH_TIME = 120;
+static const uint16_t GAP_TIME = 40;
 
 static uint8_t buz_pin = 0;
 static const char *active_pattern = NULL;
@@ -25,6 +25,7 @@ static const char *patterns[] = {
     ".",    // CLICK
     "..",   // DOUBLE
     "...",  // TRIPLE
+    ".-",   // DOT_DASH
     NULL    // CUSTOM placeholder
 };
 
@@ -89,42 +90,35 @@ void buzzer_task() {
 
     if (now < stage_end_time) return; // waiting
 
-    // Advance to next stage
-    char c = active_pattern[pat_pos];
+    // Two-phase per symbol: ON duration, then OFF gap
+    if (!is_on) {
+        // Begin ON phase for current symbol
+        char c = active_pattern[pat_pos];
+        if (c == '\0') {
+            // Finished pattern
+            hal_gpio_write(buz_pin, false);
+            busy = false;
+            active_pattern = NULL;
+            return;
+        }
 
-    if (c == '\0') {
-        // Finished entire pattern
-        hal_gpio_write(buz_pin, false);
-        busy = false;
-        active_pattern = NULL;
-        return;
-    }
-
-    if (c == '.' || c == '-') {
-        // Turn buzzer ON
-        is_on = true;
-        hal_gpio_write(buz_pin, true);
-
-        uint16_t dur = (c == '.') ? DOT_TIME : DASH_TIME;
-        stage_end_time = now + dur;
-
-        // Move to next symbol after ON time elapses
-        pat_pos++;
-    } else if (c == ' ') {
-        // Explicit silence
+        if (c == '.' || c == '-') {
+            is_on = true;
+            hal_gpio_write(buz_pin, true);
+            uint16_t dur = (c == '.') ? DOT_TIME : DASH_TIME;
+            stage_end_time = now + dur;
+            // pat_pos will advance after OFF gap
+        } else {
+            // Skip unknown/space
+            pat_pos++;
+            stage_end_time = now; // re-evaluate immediately
+        }
+    } else {
+        // End ON phase → start OFF gap
         hal_gpio_write(buz_pin, false);
         is_on = false;
-
         stage_end_time = now + GAP_TIME;
+        // Advance to next symbol after gap
         pat_pos++;
-    } else {
-        // Unknown char, skip
-        pat_pos++;
-        stage_end_time = now; // re-evaluate immediately
-    }
-
-    // After ON stage, ensure OFF gap
-    if (!is_on) {
-        hal_gpio_write(buz_pin, false);
     }
 }

@@ -11,6 +11,7 @@ enum BuzzerPattern {
     BUZ_PAT_CLICK,         // "."
     BUZ_PAT_DOUBLE,        // ".."
     BUZ_PAT_TRIPLE,        // "..."
+    BUZ_PAT_DOT_DASH,      // ".-"
     BUZ_PAT_CUSTOM         // used when calling playPattern(text)
 };
 
