@@ -1,7 +1,7 @@
 #include "logger.h"
 #include <Arduino.h>
 
-static LogLevel current_level = LOG_DEBUG;
+static LogLevel current_level = (LogLevel)LOG_DEFAULT_LEVEL;
 
 // -----------------------------------------
 void logger_init(uint32_t baud) {
@@ -37,9 +37,16 @@ static void emitFlash(LogLevel lvl, const __FlashStringHelper *prefix, const __F
 }
 
 // -----------------------------------------
+#if LOG_COMPILE_LEVEL <= LOG_DEBUG
 void log_debug(const char *msg) {
     emit(LOG_DEBUG, "[DBG] ", msg);
 }
+#else
+void log_debug(const char *msg) {
+    (void)msg;
+}
+#endif
+
 void log_info(const char *msg) {
     emit(LOG_INFO, "[INF] ", msg);
 }
@@ -53,9 +60,16 @@ void log_fatal(const char *msg) {
     emit(LOG_FATAL, "[FAT] ", msg);
 }
 
+#if LOG_COMPILE_LEVEL <= LOG_DEBUG
 void log_debug(const __FlashStringHelper *msg) {
     emitFlash(LOG_DEBUG, F("[DBG] "), msg);
 }
+#else
+void log_debug(const __FlashStringHelper *msg) {
+    (void)msg;
+}
+#endif
+
 void log_info(const __FlashStringHelper *msg) {
     emitFlash(LOG_INFO, F("[INF] "), msg);
 }

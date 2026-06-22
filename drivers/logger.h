@@ -11,6 +11,16 @@ enum LogLevel {
     LOG_DEBUG  = 10
 };
 
+// Compile-time threshold. Messages below this level are removed from binary.
+#ifndef LOG_COMPILE_LEVEL
+#define LOG_COMPILE_LEVEL LOG_DEBUG
+#endif
+
+// Suggested runtime default level if the app chooses to use it.
+#ifndef LOG_DEFAULT_LEVEL
+#define LOG_DEFAULT_LEVEL LOG_INFO
+#endif
+
 void logger_init(uint32_t baud);
 
 void logger_setLevel(LogLevel lvl);

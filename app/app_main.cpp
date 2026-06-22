@@ -34,10 +34,12 @@ static const int16_t VBAT_LOG_SIGNIFICANT_DELTA_mV = 500; // log if changed >= 0
 #define KEY_ID_SOL4_B 36
 #define KEY_ID_SOL5_F 53
 #define KEY_ID_SOL5_B 35
+#define KEY_ID_SOL6_F 43
+#define KEY_ID_SOL6_B 34
 
 // from keypad 2
-#define KEY_ID_SOL6_F 49
-#define KEY_ID_SOL6_B 94
+// #define KEY_ID_SOL6_F 49
+// #define KEY_ID_SOL6_B 94
 #define KEY_ID_SOL7_F 48
 #define KEY_ID_SOL7_B 84
 #define KEY_ID_SOL8_F 47
@@ -121,7 +123,7 @@ static void die_on_fatal_error() {
 // =========================================================
 void app_init() {
     logger_init(115200);
-    logger_setLevel(LOG_INFO);
+    logger_setLevel((LogLevel)LOG_DEFAULT_LEVEL);
     log_info(F("System boot"));
 
     // Buzzer
@@ -191,11 +193,9 @@ ISR(TIMER1_COMPA_vect) {
 // Key handling
 // =========================================================
 static void handle_key_event(uint8_t keyIndex, bool pressed) {
-    // log_info_kv("Key", pressed ? "Press" : "Release", keyIndex);
-
     int idx = find_binding_for_key(keyIndex);
-    if (idx < 0) {
-        // Unknown key
+    if (idx < 0) { // Unknown key
+        log_info_kv("Unk Key", pressed ? "Press" : "Release", keyIndex);
         return;
     }
 
