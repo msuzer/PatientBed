@@ -5,12 +5,18 @@
 #include <stdio.h>  // for snprintf
 #include "battery.h"
 #include "buzzer.h"
+#include "config.h"
 #include "hal_gpio.h"
 #include "keypad.h"
 #include "logger.h"
 #include "pca9685.h"
 #include "pins.h"
 #include "solenoid.h"
+
+#if (SOLENOID_BEHAVIOR_MODE != SOL_BEHAVIOR_CLASSIC_PAIRS) && \
+    (SOLENOID_BEHAVIOR_MODE != SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+#error "Invalid SOLENOID_BEHAVIOR_MODE in config.h"
+#endif
 
 // ---------------------------------------------------------
 // Config: battery + charger thresholds
@@ -113,6 +119,9 @@ static void handle_binding_release(uint8_t bindIndex);
 static void handle_key_event(uint8_t keyIndex, bool pressed);
 static void buzzer_for_key(uint8_t pair, int8_t dir, bool press);
 static void battery_log_request(BatteryStatus status, int16_t vbat_mV);
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+static bool any_work_pair_active();
+#endif
 
 static void die_on_fatal_error() {
     ledMode = LED_MODE_ERROR;
@@ -335,12 +344,29 @@ static void handle_binding_press(uint8_t bindIndex) {
 
     if (pair < 1 || pair > 8) return;
 
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+    // Pair 8 is reserved as shared direction pair for all work channels.
+    if (pair == 8) {
+        keyAccepted[bindIndex] = false;
+        log_debug(F("Pair 8 reserved for direction"));
+        return;
+    }
+
     // Respect first-press-wins rule
     if (pairState[pair] != PAIR_IDLE) {
         log_debug(F("Pair busy"));
         keyAccepted[bindIndex] = false;
         return;
     }
+
+    // Shared direction pair (8) cannot reverse while any work pair is active.
+    if ((pairState[8] == PAIR_FWD && dir < 0) ||
+        (pairState[8] == PAIR_BWD && dir > 0)) {
+        log_debug(F("Direction pair busy"));
+        keyAccepted[bindIndex] = false;
+        return;
+    }
+#endif
 
     Result r = solenoid_drive(pair, dir);
     if (r != RES_OK) {
@@ -349,6 +375,22 @@ static void handle_binding_press(uint8_t bindIndex) {
         keyAccepted[bindIndex] = false;
         return;
     }
+
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+    // Auto-drive shared direction pair with same direction.
+    if (pairState[8] == PAIR_IDLE) {
+        r = solenoid_drive(8, dir);
+        if (r != RES_OK) {
+            // Roll back work-pair activation if direction pair fails.
+            solenoid_stopPair(pair);
+            log_error(F("direction solenoid_drive failed"));
+            ledMode = LED_MODE_ERROR;
+            keyAccepted[bindIndex] = false;
+            return;
+        }
+        pairState[8] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
+    }
+#endif
 
     pairState[pair] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
     keyAccepted[bindIndex] = true;
@@ -372,6 +414,14 @@ static void handle_binding_release(uint8_t bindIndex) {
 
     if (pair < 1 || pair > 8) return;
 
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+    // Pair 8 is reserved for shared direction and not user-controlled.
+    if (pair == 8) {
+        keyAccepted[bindIndex] = false;
+        return;
+    }
+#endif
+
     // Only stop if this direction is actually active
     if ((pairState[pair] == PAIR_FWD && dir > 0) ||
         (pairState[pair] == PAIR_BWD && dir < 0)) {
@@ -386,6 +436,19 @@ static void handle_binding_release(uint8_t bindIndex) {
         pairState[pair] = PAIR_IDLE;
         keyAccepted[bindIndex] = false;
 
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+        // If no work pair is active anymore, stop shared direction pair.
+        if (!any_work_pair_active() && pairState[8] != PAIR_IDLE) {
+            r = solenoid_stopPair(8);
+            if (r != RES_OK) {
+                log_error(F("direction solenoid_stopPair failed"));
+                ledMode = LED_MODE_ERROR;
+                return;
+            }
+            pairState[8] = PAIR_IDLE;
+        }
+#endif
+
         char buffer[16];
         snprintf(buffer, sizeof(buffer), "Sol%d IDLE", pair);
         log_info(buffer);
@@ -393,6 +456,17 @@ static void handle_binding_release(uint8_t bindIndex) {
         buzzer_for_key(pair, dir, false);
     }
 }
+
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+static bool any_work_pair_active() {
+    for (uint8_t p = 1; p <= 7; ++p) {
+        if (pairState[p] != PAIR_IDLE) {
+            return true;
+        }
+    }
+    return false;
+}
+#endif
 
 // ----------------------------------------------------------
 // Buzzer mapping for keys
