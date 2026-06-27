@@ -346,9 +346,9 @@ static void handle_binding_press(uint8_t bindIndex) {
 
 #if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
     // Pair 8 is reserved as shared direction pair for all work channels.
-    if (pair == 8) {
+    if (pair == SOL_SHARED_DIRECTION_PAIR_INDEX) {
         keyAccepted[bindIndex] = false;
-        log_debug(F("Pair 8 reserved for direction"));
+        log_info_kv(F("Reserved direction pair"), F("pair"), SOL_SHARED_DIRECTION_PAIR_INDEX);
         return;
     }
 
@@ -360,17 +360,21 @@ static void handle_binding_press(uint8_t bindIndex) {
     }
 
     // Shared direction pair (8) cannot reverse while any work pair is active.
-    if ((pairState[8] == PAIR_FWD && dir < 0) ||
-        (pairState[8] == PAIR_BWD && dir > 0)) {
+    if ((pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] == PAIR_FWD && dir < 0) ||
+        (pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] == PAIR_BWD && dir > 0)) {
         log_debug(F("Direction pair busy"));
         keyAccepted[bindIndex] = false;
         return;
     }
 #endif
 
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+    Result r = solenoid_mirrorPair(pair, true);
+#else
     Result r = solenoid_drive(pair, dir);
+#endif
     if (r != RES_OK) {
-        log_error(F("solenoid_drive failed"));
+        log_error(F("solenoid activation failed"));
         ledMode = LED_MODE_ERROR;
         keyAccepted[bindIndex] = false;
         return;
@@ -378,17 +382,17 @@ static void handle_binding_press(uint8_t bindIndex) {
 
 #if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
     // Auto-drive shared direction pair with same direction.
-    if (pairState[8] == PAIR_IDLE) {
-        r = solenoid_drive(8, dir);
+    if (pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] == PAIR_IDLE) {
+        r = solenoid_drive(SOL_SHARED_DIRECTION_PAIR_INDEX, dir);
         if (r != RES_OK) {
             // Roll back work-pair activation if direction pair fails.
-            solenoid_stopPair(pair);
+            solenoid_mirrorPair(pair, false);
             log_error(F("direction solenoid_drive failed"));
             ledMode = LED_MODE_ERROR;
             keyAccepted[bindIndex] = false;
             return;
         }
-        pairState[8] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
+        pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
     }
 #endif
 
@@ -416,7 +420,7 @@ static void handle_binding_release(uint8_t bindIndex) {
 
 #if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
     // Pair 8 is reserved for shared direction and not user-controlled.
-    if (pair == 8) {
+    if (pair == SOL_SHARED_DIRECTION_PAIR_INDEX) {
         keyAccepted[bindIndex] = false;
         return;
     }
@@ -426,9 +430,13 @@ static void handle_binding_release(uint8_t bindIndex) {
     if ((pairState[pair] == PAIR_FWD && dir > 0) ||
         (pairState[pair] == PAIR_BWD && dir < 0)) {
 
+#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
+        Result r = solenoid_mirrorPair(pair, false);
+#else
         Result r = solenoid_stopPair(pair);
+#endif
         if (r != RES_OK) {
-            log_error(F("solenoid_stopPair failed"));
+        log_error(F("solenoid release failed"));
             ledMode = LED_MODE_ERROR;
             return;
         }
@@ -438,14 +446,14 @@ static void handle_binding_release(uint8_t bindIndex) {
 
 #if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
         // If no work pair is active anymore, stop shared direction pair.
-        if (!any_work_pair_active() && pairState[8] != PAIR_IDLE) {
-            r = solenoid_stopPair(8);
+        if (!any_work_pair_active() && pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] != PAIR_IDLE) {
+            r = solenoid_stopPair(SOL_SHARED_DIRECTION_PAIR_INDEX);
             if (r != RES_OK) {
                 log_error(F("direction solenoid_stopPair failed"));
                 ledMode = LED_MODE_ERROR;
                 return;
             }
-            pairState[8] = PAIR_IDLE;
+            pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] = PAIR_IDLE;
         }
 #endif
 

@@ -5,6 +5,32 @@
 
 static bool sol_state[16] = {0}; // tracks PCA9685 outputs
 static int8_t active_count = 0; // how many of ch0 - ch15 are ON
+static Result update_sol0();
+
+static Result solenoid_set_internal(uint8_t c, bool on, bool allow_pair_conflict) {
+    bool was_on = sol_state[c];
+    if (was_on == on) return RES_OK;
+
+    bool is_forward = ((c % 2) == 0);
+    uint8_t other_ch = is_forward ? (c + 1) : (c - 1);
+
+    if (!allow_pair_conflict && on && sol_state[other_ch]) {
+        return RES_ERR;
+    }
+
+    Result r = pca9685_setChannelState(c, on);
+    if (r != RES_OK) return r;
+
+    sol_state[c] = on;
+
+    if (on) {
+        if (active_count < 16) active_count++;
+    } else {
+        if (active_count > 0) active_count--;
+    }
+
+    return update_sol0();
+}
 
 // ------------------------------------------------------
 // Helper: apply Sol0 logic automatically
@@ -53,34 +79,7 @@ Result solenoid_init() {
 // ------------------------------------------------------
 Result solenoid_set(SolenoidChannel ch, bool on) {
     uint8_t c = (uint8_t)ch;
-
-    bool was_on = sol_state[c];
-    if (was_on == on) return RES_OK; // no change needed
-
-    // Pair conflict prevention
-    // uint8_t pair = c / 2;
-    bool is_forward = ((c % 2) == 0);
-    uint8_t other_ch = is_forward ? (c + 1) : (c - 1);
-
-    if (on && sol_state[other_ch])
-        return RES_ERR; // invalid: F and B at same time
-
-    // Apply to PCA
-    Result r = pca9685_setChannelState(c, on);
-    if (r != RES_OK) return r;
-
-    // Track state
-    sol_state[c] = on;
-
-    // Update active_count
-    if (on) {
-        if (active_count < 16) active_count++;
-    } else {
-        if (active_count > 0) active_count--;
-    }
-
-    // Apply automatic Sol0 logic
-    return update_sol0();
+    return solenoid_set_internal(c, on, false);
 }
 
 // ------------------------------------------------------
@@ -125,6 +124,23 @@ Result solenoid_stopPair(uint8_t pair) {
     if (r != RES_OK) return r;
 
     return solenoid_set(b, false);
+}
+
+// ------------------------------------------------------
+Result solenoid_mirrorPair(uint8_t pair, bool on) {
+    SolenoidChannel f, b;
+    if (!get_pair(pair, &f, &b)) return RES_PARAM;
+
+    Result r = solenoid_set_internal((uint8_t)f, on, true);
+    if (r != RES_OK) return r;
+
+    r = solenoid_set_internal((uint8_t)b, on, true);
+    if (r != RES_OK) {
+        solenoid_set_internal((uint8_t)f, !on, true);
+        return r;
+    }
+
+    return RES_OK;
 }
 
 // ------------------------------------------------------

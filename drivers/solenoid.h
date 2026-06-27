@@ -32,6 +32,7 @@ Result solenoid_set(SolenoidChannel ch, bool on);
 Result solenoid_forward(uint8_t pair);  // 1–8
 Result solenoid_backward(uint8_t pair); // 1–8
 Result solenoid_stopPair(uint8_t pair); // turns both off
+Result solenoid_mirrorPair(uint8_t pair, bool on); // drives both pair outputs together
 
 // Unified API (dir = +1 → forward, -1 → backward, 0 → stop)
 Result solenoid_drive(uint8_t pair, int direction);
