@@ -5,18 +5,13 @@
 #include <stdio.h>  // for snprintf
 #include "battery.h"
 #include "buzzer.h"
-#include "config.h"
 #include "hal_gpio.h"
 #include "keypad.h"
 #include "logger.h"
 #include "pca9685.h"
 #include "pins.h"
 #include "solenoid.h"
-
-#if (SOLENOID_BEHAVIOR_MODE != SOL_BEHAVIOR_CLASSIC_PAIRS) && \
-    (SOLENOID_BEHAVIOR_MODE != SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-#error "Invalid SOLENOID_BEHAVIOR_MODE in config.h"
-#endif
+#include "solenoid_behavior.h"
 
 // ---------------------------------------------------------
 // Config: battery + charger thresholds
@@ -92,11 +87,6 @@ enum BatteryStatus {
 // Track which bindings we actually “accepted” on press
 static bool keyAccepted[16] = {false};
 
-// ---------------------------------------------------------
-// Per-pair state (to enforce “first wins” rule)
-// ---------------------------------------------------------
-enum PairState : uint8_t { PAIR_IDLE = 0, PAIR_FWD, PAIR_BWD };
-
 PairState pairState[9] = {PAIR_IDLE}; // index 1..8 used
 
 const uint8_t keypadPins[10] = {PIN_KB_A0, PIN_KB_B4, PIN_KB_A1, PIN_KB_B3, PIN_KB_A2, 
@@ -119,9 +109,6 @@ static void handle_binding_release(uint8_t bindIndex);
 static void handle_key_event(uint8_t keyIndex, bool pressed);
 static void buzzer_for_key(uint8_t pair, int8_t dir, bool press);
 static void battery_log_request(BatteryStatus status, int16_t vbat_mV);
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-static bool any_work_pair_active();
-#endif
 
 static void die_on_fatal_error() {
     ledMode = LED_MODE_ERROR;
@@ -178,10 +165,11 @@ void app_init() {
     }
     
     log_info(F("Solenoid system initialized"));
-    
-    // Initialize per-pair states
-    for (uint8_t p = 1; p <= 8; ++p) {
-        pairState[p] = PAIR_IDLE;
+
+    if (solenoid_behavior_init(pairState) != RES_OK) {
+        log_fatal("solenoid_behavior_init failed");
+        ledMode = LED_MODE_ERROR;
+        die_on_fatal_error();
     }
 
     buzzer_play(BUZ_PAT_TRIPLE);
@@ -342,37 +330,10 @@ static void handle_binding_press(uint8_t bindIndex) {
     uint8_t pair = b.pair;
     int8_t dir = b.dir;
 
-    if (pair < 1 || pair > 8) return;
+    if (pair < 1 || pair > SOLENOID_PAIR_COUNT) return;
 
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-    // Pair 8 is reserved as shared direction pair for all work channels.
-    if (pair == SOL_SHARED_DIRECTION_PAIR_INDEX) {
-        keyAccepted[bindIndex] = false;
-        log_info_kv(F("Reserved direction pair"), F("pair"), SOL_SHARED_DIRECTION_PAIR_INDEX);
-        return;
-    }
-
-    // Respect first-press-wins rule
-    if (pairState[pair] != PAIR_IDLE) {
-        log_debug(F("Pair busy"));
-        keyAccepted[bindIndex] = false;
-        return;
-    }
-
-    // Shared direction pair (8) cannot reverse while any work pair is active.
-    if ((pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] == PAIR_FWD && dir < 0) ||
-        (pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] == PAIR_BWD && dir > 0)) {
-        log_debug(F("Direction pair busy"));
-        keyAccepted[bindIndex] = false;
-        return;
-    }
-#endif
-
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-    Result r = solenoid_mirrorPair(pair, true);
-#else
-    Result r = solenoid_drive(pair, dir);
-#endif
+    bool activated = false;
+    Result r = solenoid_behavior_press(pair, dir, pairState, &activated);
     if (r != RES_OK) {
         log_error(F("solenoid activation failed"));
         ledMode = LED_MODE_ERROR;
@@ -380,23 +341,11 @@ static void handle_binding_press(uint8_t bindIndex) {
         return;
     }
 
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-    // Auto-drive shared direction pair with same direction.
-    if (pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] == PAIR_IDLE) {
-        r = solenoid_drive(SOL_SHARED_DIRECTION_PAIR_INDEX, dir);
-        if (r != RES_OK) {
-            // Roll back work-pair activation if direction pair fails.
-            solenoid_mirrorPair(pair, false);
-            log_error(F("direction solenoid_drive failed"));
-            ledMode = LED_MODE_ERROR;
-            keyAccepted[bindIndex] = false;
-            return;
-        }
-        pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
+    if (!activated) {
+        keyAccepted[bindIndex] = false;
+        return;
     }
-#endif
 
-    pairState[pair] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
     keyAccepted[bindIndex] = true;
 
     char buffer[16];
@@ -416,65 +365,29 @@ static void handle_binding_release(uint8_t bindIndex) {
     uint8_t pair = b.pair;
     int8_t dir = b.dir;
 
-    if (pair < 1 || pair > 8) return;
+    if (pair < 1 || pair > SOLENOID_PAIR_COUNT) return;
 
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-    // Pair 8 is reserved for shared direction and not user-controlled.
-    if (pair == SOL_SHARED_DIRECTION_PAIR_INDEX) {
+    bool released = false;
+    Result r = solenoid_behavior_release(pair, dir, pairState, &released);
+    if (r != RES_OK) {
+        log_error(F("solenoid release failed"));
+        ledMode = LED_MODE_ERROR;
+        return;
+    }
+
+    if (!released) {
         keyAccepted[bindIndex] = false;
         return;
     }
-#endif
 
-    // Only stop if this direction is actually active
-    if ((pairState[pair] == PAIR_FWD && dir > 0) ||
-        (pairState[pair] == PAIR_BWD && dir < 0)) {
+    keyAccepted[bindIndex] = false;
 
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-        Result r = solenoid_mirrorPair(pair, false);
-#else
-        Result r = solenoid_stopPair(pair);
-#endif
-        if (r != RES_OK) {
-        log_error(F("solenoid release failed"));
-            ledMode = LED_MODE_ERROR;
-            return;
-        }
+    char buffer[16];
+    snprintf(buffer, sizeof(buffer), "Sol%d IDLE", pair);
+    log_info(buffer);
 
-        pairState[pair] = PAIR_IDLE;
-        keyAccepted[bindIndex] = false;
-
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-        // If no work pair is active anymore, stop shared direction pair.
-        if (!any_work_pair_active() && pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] != PAIR_IDLE) {
-            r = solenoid_stopPair(SOL_SHARED_DIRECTION_PAIR_INDEX);
-            if (r != RES_OK) {
-                log_error(F("direction solenoid_stopPair failed"));
-                ledMode = LED_MODE_ERROR;
-                return;
-            }
-            pairState[SOL_SHARED_DIRECTION_PAIR_INDEX] = PAIR_IDLE;
-        }
-#endif
-
-        char buffer[16];
-        snprintf(buffer, sizeof(buffer), "Sol%d IDLE", pair);
-        log_info(buffer);
-
-        buzzer_for_key(pair, dir, false);
-    }
+    buzzer_for_key(pair, dir, false);
 }
-
-#if (SOLENOID_BEHAVIOR_MODE == SOL_BEHAVIOR_SHARED_DIRECTION_PAIR8)
-static bool any_work_pair_active() {
-    for (uint8_t p = 1; p <= 7; ++p) {
-        if (pairState[p] != PAIR_IDLE) {
-            return true;
-        }
-    }
-    return false;
-}
-#endif
 
 // ----------------------------------------------------------
 // Buzzer mapping for keys
