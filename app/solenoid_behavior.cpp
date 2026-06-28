@@ -122,8 +122,8 @@ Result solenoid_behavior_init(PairState pairState[]) {
         return r;
     }
 
-    // Conflict protection is declared by the selected behavior module.
-    r = solenoid_setPairConflictPolicy(activeBehavior->enforcePairConflict);
+    // Set pair conflict policy based on scenario
+    r = solenoidSystem.setPairConflictPolicy(activeBehavior->enforcePairConflict);
     if (r != RES_OK) return r;
 
     log_info(mode_name(activeBehavior->mode));

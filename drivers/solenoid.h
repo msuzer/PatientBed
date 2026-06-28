@@ -11,7 +11,7 @@
 #endif
 
 // ------------------------------------------------------
-// Types
+// Channel definitions
 // ------------------------------------------------------
 enum SolenoidChannel : uint8_t {
     SOL1F = 0,
@@ -32,28 +32,10 @@ enum SolenoidChannel : uint8_t {
     SOL8B = 15
 };
 
-// ------------------------------------------------------
-// Core API
-// ------------------------------------------------------
+// ======================================================
+// Legacy API - for backward compatibility
+// Delegates to SolenoidSystemController
+// ======================================================
+
+// Initialize solenoid system (delegates to solenoidSystem.begin())
 Result solenoid_init();
-
-// Controls individual channel (1F/1B/etc)
-Result solenoid_set(SolenoidChannel ch, bool on);
-
-// Driver-level safety policy.
-// When enabled, forward/backward channels of the same pair cannot be ON together.
-Result solenoid_setPairConflictPolicy(bool enabled);
-
-// ------------------------------------------------------
-// Pair API
-// ------------------------------------------------------
-Result solenoid_pairForward(uint8_t pair);  // 1..SOLENOID_PAIR_COUNT
-Result solenoid_pairBackward(uint8_t pair); // 1..SOLENOID_PAIR_COUNT
-Result solenoid_pairStop(uint8_t pair); // turns both off
-Result solenoid_pairSetMirrored(uint8_t pair, bool on); // drives both pair outputs together
-
-// Unified API (dir = +1 → forward, -1 → backward, 0 → stop)
-Result solenoid_pairDrive(uint8_t pair, int direction);
-
-// Global controls
-Result solenoid_allOff();
