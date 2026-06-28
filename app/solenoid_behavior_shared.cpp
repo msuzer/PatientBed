@@ -1,6 +1,13 @@
 #include "solenoid_behavior_module.h"
+#include "solenoid_system_controller.h"
 #include "logger.h"
 #include "solenoid.h"
+
+// Direction pair index (0-based for controller)
+static const uint8_t DIR_PAIR_IDX = SOL_DIRECTION_PAIR_INDEX - 1;
+
+// Work pair count (direction pair is the last one)
+static const uint8_t WORK_PAIR_COUNT = SOLENOID_PAIR_COUNT - 1;
 
 // ------------------------------------------------------
 // Private helpers
@@ -9,9 +16,13 @@ static bool is_valid_pair(uint8_t pair) {
     return pair >= 1 && pair <= SOLENOID_PAIR_COUNT;
 }
 
+// Convert from 1-based pair index to 0-based controller index
+static uint8_t pair_to_index(uint8_t pair) {
+    return pair - 1;
+}
+
 static bool any_work_pair_active(const PairState pairState[]) {
-    for (uint8_t p = 1; p <= SOLENOID_PAIR_COUNT; ++p) {
-        if (p == SOL_DIRECTION_PAIR_INDEX) continue;
+    for (uint8_t p = 1; p < SOL_DIRECTION_PAIR_INDEX; ++p) {
         if (pairState[p] != PAIR_IDLE) {
             return true;
         }
@@ -40,13 +51,16 @@ static Result press(uint8_t pair, int8_t dir, PairState pairState[], bool *activ
         return RES_OK;
     }
 
-    Result r = solenoid_pairSetMirrored(pair, true);
+    // Activate work pair (uses MIRRORED mode, so both channels on)
+    Result r = solenoidSystem.setPairState(pair_to_index(pair), dir);
     if (r != RES_OK) return r;
 
+    // If direction pair is idle, activate it with same direction
     if (pairState[SOL_DIRECTION_PAIR_INDEX] == PAIR_IDLE) {
-        r = solenoid_pairDrive(SOL_DIRECTION_PAIR_INDEX, dir);
+        r = solenoidSystem.setPairState(DIR_PAIR_IDX, dir);
         if (r != RES_OK) {
-            solenoid_pairSetMirrored(pair, false);
+            // Rollback work pair activation if direction pair fails
+            solenoidSystem.setPairState(pair_to_index(pair), 0);
             return r;
         }
         pairState[SOL_DIRECTION_PAIR_INDEX] = (dir > 0) ? PAIR_FWD : PAIR_BWD;
@@ -71,14 +85,16 @@ static Result release(uint8_t pair, int8_t dir, PairState pairState[], bool *rel
         return RES_OK;
     }
 
-    Result r = solenoid_pairSetMirrored(pair, false);
+    // Deactivate work pair (both channels off)
+    Result r = solenoidSystem.setPairState(pair_to_index(pair), 0);
     if (r != RES_OK) return r;
 
     pairState[pair] = PAIR_IDLE;
     *released = true;
 
+    // If no work pairs are active, deactivate direction pair
     if (!any_work_pair_active(pairState) && pairState[SOL_DIRECTION_PAIR_INDEX] != PAIR_IDLE) {
-        r = solenoid_pairStop(SOL_DIRECTION_PAIR_INDEX);
+        r = solenoidSystem.setPairState(DIR_PAIR_IDX, 0);
         if (r != RES_OK) return r;
         pairState[SOL_DIRECTION_PAIR_INDEX] = PAIR_IDLE;
     }
