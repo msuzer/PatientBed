@@ -2,13 +2,16 @@
 #include "logger.h"
 
 // ======================================================
-// Global singleton instance
-// ======================================================
-SolenoidSystemController solenoidSystem;
-
-// ======================================================
 // SolenoidSystemController implementation
 // ======================================================
+
+SolenoidSystemController::SolenoidSystemController() {
+    for (uint8_t c = 0; c < SOLENOID_CHANNEL_COUNT; c++) {
+        sol_state[c] = false;
+    }
+
+    resetPairConfig();
+}
 
 Result SolenoidSystemController::begin() {
     // Initialize low-level driver (PCA9685 + GPIO)
@@ -18,21 +21,14 @@ Result SolenoidSystemController::begin() {
         return r;
     }
 
-    r = hal_gpio_mode(PIN_MAIN_PUMP_SOLENOID, OUTPUT);
+    r = pca9685_setAllPinsOff();
     if (r != RES_OK) return r;
 
-    r = hal_gpio_write(PIN_MAIN_PUMP_SOLENOID, LOW);
-    if (r != RES_OK) return r;
-
-    // Initialize state tracking (moved from solenoid_core)
     for (uint8_t i = 0; i < SOLENOID_CHANNEL_COUNT; i++) {
         sol_state[i] = false;
     }
-    // Initialize pair configuration and state
-    for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
-        pairConfigured[i] = false;
-        pairState[i] = 0;  // off
-    }
+
+    resetPairConfig();
 
     return RES_OK;
 }
@@ -81,77 +77,62 @@ Result SolenoidSystemController::configurePair(uint8_t pairIndex, const PairConf
         return RES_PARAM;
     }
 
+    if (pairState[pairIndex] != SolenoidPairState::OFF) {
+        log_error("Cannot configure active pair");
+        return RES_BUSY;
+    }
+
+    if (isChannelUsedByOtherPair(pairIndex, config.forwardChannel) ||
+        isChannelUsedByOtherPair(pairIndex, config.backwardChannel)) {
+        log_error("Channel already assigned to another pair");
+        return RES_PARAM;
+    }
+
     pairConfigs[pairIndex] = config;
-    pairConfigured[pairIndex] = true;
+    pairState[pairIndex] = SolenoidPairState::OFF;
 
     log_debug("Pair configured");
 
     return RES_OK;
 }
 
-Result SolenoidSystemController::setPairState(uint8_t pairIndex, int8_t direction) {
+Result SolenoidSystemController::setPairState(uint8_t pairIndex, SolenoidPairState state) {
     if (!isPairConfigured(pairIndex)) {
         log_error("Pair not configured");
         return RES_PARAM;
     }
 
-    if (direction != -1 && direction != 0 && direction != 1) {
-        log_error("Invalid direction");
-        return RES_PARAM;
-    }
-
     const PairConfig& config = pairConfigs[pairIndex];
-    uint8_t fwd = config.forwardChannel;
-    uint8_t bwd = config.backwardChannel;
+    Result r = RES_OK;
 
-    if (direction == 0) {
-        // Turn off both channels
-        Result r = setChannelState(fwd, false);
-        if (r != RES_OK) return r;
-        r = setChannelState(bwd, false);
-        if (r != RES_OK) return r;
-        pairState[pairIndex] = 0;
+    switch (config.mode) {
+        case PairMode::COMPLEMENTARY:
+            r = applyComplementaryPair(config, state);
+            break;
 
-    } else if (config.mode == PairMode::COMPLEMENTARY) {
-        // Opposite channels: turn one on, one off
-        Result r = RES_OK;
-        if (direction > 0) {
-            // Forward: fwd on, bwd off
-            r = setChannelState(bwd, false);
-            if (r != RES_OK) return r;
-            r = setChannelState(fwd, true);
-            if (r != RES_OK) return r;
-        } else {
-            // Backward: fwd off, bwd on
-            r = setChannelState(fwd, false);
-            if (r != RES_OK) return r;
-            r = setChannelState(bwd, true);
-            if (r != RES_OK) return r;
-        }
+        case PairMode::MIRRORED:
+            r = applyMirroredPair(config, state);
+            break;
 
-        pairState[pairIndex] = (direction > 0) ? 1 : -1;
-
-    } else if (config.mode == PairMode::MIRRORED) {
-        // Both channels together: both on or both off
-        bool on = (direction != 0);
-        Result r = setChannelState(fwd, on);
-        if (r != RES_OK) return r;
-        r = setChannelState(bwd, on);
-        if (r != RES_OK) return r;
-        pairState[pairIndex] = on ? (direction > 0 ? 1 : -1) : 0;
+        default:
+            log_error("Invalid pair mode");
+            return RES_PARAM;
     }
 
+    if (r != RES_OK) return r;
+
+    pairState[pairIndex] = state;
     return updateMainPumpGPIO();
 }
 
-int8_t SolenoidSystemController::getPairState(uint8_t pairIndex) const {
-    if (!isValidPairIndex(pairIndex)) return 0;
+SolenoidPairState SolenoidSystemController::getPairState(uint8_t pairIndex) const {
+    if (!isValidPairIndex(pairIndex)) return SolenoidPairState::OFF;
     return pairState[pairIndex];
 }
 
 bool SolenoidSystemController::hasAnyActivePair() const {
     for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
-        if (pairState[i] != 0) {
+        if (isPairConfigured(i) && pairState[i] != SolenoidPairState::OFF) {
             return true;
         }
     }
@@ -160,7 +141,13 @@ bool SolenoidSystemController::hasAnyActivePair() const {
 
 bool SolenoidSystemController::isPairConfigured(uint8_t pairIndex) const {
     if (!isValidPairIndex(pairIndex)) return false;
-    return pairConfigured[pairIndex];
+    return isAssignedChannel(pairConfigs[pairIndex].forwardChannel) &&
+           isAssignedChannel(pairConfigs[pairIndex].backwardChannel);
+}
+
+bool SolenoidSystemController::isPairIdle(uint8_t pairIndex) const {
+    return isValidPairIndex(pairIndex) &&
+           pairState[pairIndex] == SolenoidPairState::OFF;
 }
 
 Result SolenoidSystemController::updateMainPump() {
@@ -168,6 +155,23 @@ Result SolenoidSystemController::updateMainPump() {
 }
 
 Result SolenoidSystemController::allOff() {
+    return emergencyAllOff();
+}
+
+Result SolenoidSystemController::setAllPairsOff() {
+    for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
+        if (!isPairConfigured(i)) {
+            continue;
+        }
+
+        Result r = setPairState(i, SolenoidPairState::OFF);
+        if (r != RES_OK) return r;
+    }
+
+    return RES_OK;
+}
+
+Result SolenoidSystemController::emergencyAllOff() {
     // Bulk off via PCA9685 hardware register
     Result r = pca9685_setAllPinsOff();
     if (r != RES_OK) return r;
@@ -179,10 +183,43 @@ Result SolenoidSystemController::allOff() {
 
     // Reset pair state
     for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
-        pairState[i] = 0;
+        pairState[i] = SolenoidPairState::OFF;
     }
 
     return updateMainPumpGPIO();
+}
+
+Result SolenoidSystemController::clearPair(uint8_t pairIndex) {
+    if (!isValidPairIndex(pairIndex)) {
+        return RES_PARAM;
+    }
+
+    if (pairState[pairIndex] != SolenoidPairState::OFF) {
+        return RES_BUSY;
+    }
+
+    pairConfigs[pairIndex].forwardChannel = kUnassignedChannel;
+    pairConfigs[pairIndex].backwardChannel = kUnassignedChannel;
+    pairConfigs[pairIndex].mode = PairMode::COMPLEMENTARY;
+    return RES_OK;
+}
+
+Result SolenoidSystemController::clearAllPairs() {
+    if (hasAnyActivePair()) {
+        return RES_BUSY;
+    }
+
+    resetPairConfig();
+    return RES_OK;
+}
+
+void SolenoidSystemController::resetPairConfig() {
+    for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
+        pairState[i] = SolenoidPairState::OFF;
+        pairConfigs[i].forwardChannel = kUnassignedChannel;
+        pairConfigs[i].backwardChannel = kUnassignedChannel;
+        pairConfigs[i].mode = PairMode::COMPLEMENTARY;
+    }
 }
 
 bool SolenoidSystemController::isValidChannel(uint8_t channel) const {
@@ -193,11 +230,60 @@ bool SolenoidSystemController::isValidPairIndex(uint8_t pairIndex) const {
     return pairIndex < SOLENOID_PAIR_COUNT;
 }
 
-// ======================================================
-// Legacy API wrapper - delegates to controller
-// ======================================================
+bool SolenoidSystemController::isAssignedChannel(uint8_t channel) const {
+    return channel != kUnassignedChannel;
+}
 
-// For backward compatibility with app_main.cpp
-Result solenoid_init() {
-    return solenoidSystem.begin();
+bool SolenoidSystemController::isChannelUsedByOtherPair(uint8_t pairIndex, uint8_t channel) const {
+    for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
+        if (i == pairIndex || !isPairConfigured(i)) {
+            continue;
+        }
+
+        if (pairConfigs[i].forwardChannel == channel ||
+            pairConfigs[i].backwardChannel == channel) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+Result SolenoidSystemController::applyComplementaryPair(const PairConfig& config, SolenoidPairState state) {
+    switch (state) {
+        case SolenoidPairState::OFF: {
+            Result r = setChannelState(config.forwardChannel, false);
+            if (r != RES_OK) return r;
+            return setChannelState(config.backwardChannel, false);
+        }
+
+        case SolenoidPairState::FORWARD: {
+            Result r = setChannelState(config.backwardChannel, false);
+            if (r != RES_OK) return r;
+            return setChannelState(config.forwardChannel, true);
+        }
+
+        case SolenoidPairState::BACKWARD: {
+            Result r = setChannelState(config.forwardChannel, false);
+            if (r != RES_OK) return r;
+            return setChannelState(config.backwardChannel, true);
+        }
+
+        default:
+            return RES_PARAM;
+    }
+}
+
+Result SolenoidSystemController::applyMirroredPair(const PairConfig& config, SolenoidPairState state) {
+    if (state != SolenoidPairState::OFF &&
+        state != SolenoidPairState::FORWARD &&
+        state != SolenoidPairState::BACKWARD) {
+        return RES_PARAM;
+    }
+
+    const bool on = (state != SolenoidPairState::OFF);
+    Result r = setChannelState(config.forwardChannel, on);
+    if (r != RES_OK) return r;
+
+    return setChannelState(config.backwardChannel, on);
 }

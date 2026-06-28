@@ -7,32 +7,26 @@
 // Private handlers (scaffold)
 // ------------------------------------------------------
 
-static Result press(uint8_t pair, int8_t dir, PairState pairState[], bool *activated) {
+static Result press(SolenoidSystemController& controller, uint8_t pair, SolenoidPairState state) {
     // TODO: Validate pair/dir and reject unsupported combinations.
     // TODO: Apply any occupancy/conflict checks before actuating outputs.
-    // TODO: Drive hardware for press and update pairState accordingly.
+    // TODO: Drive hardware for press and update controller state accordingly.
     (void)pair;
-    (void)dir;
-    (void)pairState;
+    (void)state;
+    (void)controller;
 
-    if (!activated) return RES_PARAM;
-    *activated = false;
-
-    return RES_OK;
+    return RES_NOOP;
 }
 
-static Result release(uint8_t pair, int8_t dir, PairState pairState[], bool *released) {
+static Result release(SolenoidSystemController& controller, uint8_t pair, SolenoidPairState state) {
     // TODO: Verify that this release matches the currently active direction.
     // TODO: Stop/deactivate hardware outputs for this scenario.
-    // TODO: Restore pairState and perform shared-resource cleanup if needed.
+    // TODO: Restore controller state and perform shared-resource cleanup if needed.
     (void)pair;
-    (void)dir;
-    (void)pairState;
+    (void)state;
+    (void)controller;
 
-    if (!released) return RES_PARAM;
-    *released = false;
-
-    return RES_OK;
+    return RES_NOOP;
 }
 
 // ------------------------------------------------------

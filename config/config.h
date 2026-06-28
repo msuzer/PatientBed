@@ -10,7 +10,7 @@ enum SolenoidBehaviorMode : uint8_t {
 };
 
 #ifndef SOL_DIRECTION_PAIR_INDEX
-#define SOL_DIRECTION_PAIR_INDEX SOLENOID_PAIR_COUNT
+#define SOL_DIRECTION_PAIR_INDEX (SOLENOID_PAIR_COUNT - 1)
 #endif
 
 // PB4 (Arduino D12) is used as mode selector because current active keypad
@@ -41,4 +41,3 @@ enum SolenoidBehaviorMode : uint8_t {
 #ifndef SOLENOID_BEHAVIOR_SELECTOR_INACTIVE_MODE
 #define SOLENOID_BEHAVIOR_SELECTOR_INACTIVE_MODE SOL_BEHAVIOR_CLASSIC_PAIRS
 #endif
-

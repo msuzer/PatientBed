@@ -9,8 +9,8 @@
 // ------------------------------------------------------
 struct SolenoidBehaviorOps {
     SolenoidBehaviorMode mode;
-    Result (*press)(uint8_t pair, int8_t dir, PairState pairState[], bool *activated);
-    Result (*release)(uint8_t pair, int8_t dir, PairState pairState[], bool *released);
+    Result (*press)(SolenoidSystemController& controller, uint8_t pairIndex, SolenoidPairState state);
+    Result (*release)(SolenoidSystemController& controller, uint8_t pairIndex, SolenoidPairState state);
 };
 
 // ------------------------------------------------------

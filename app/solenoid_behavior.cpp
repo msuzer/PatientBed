@@ -10,6 +10,7 @@
 // Private state
 // ------------------------------------------------------
 static const SolenoidBehaviorOps *activeBehavior = nullptr;
+static SolenoidSystemController *activeController = nullptr;
 
 // ------------------------------------------------------
 // Private helpers
@@ -40,7 +41,16 @@ static const char *mode_name(SolenoidBehaviorMode mode) {
     return "CLASSIC_PAIRS";
 }
 
-static Result configure_pairs_for_mode(SolenoidBehaviorMode mode) {
+static bool is_valid_pair_index(uint8_t pairIndex) {
+    return pairIndex < SOLENOID_PAIR_COUNT;
+}
+
+static bool is_drive_state(SolenoidPairState state) {
+    return state == SolenoidPairState::FORWARD ||
+           state == SolenoidPairState::BACKWARD;
+}
+
+static Result configure_pairs_for_mode(SolenoidBehaviorMode mode, SolenoidSystemController& controller) {
     const PairConfig *configs = nullptr;
 
     if (mode == SOL_BEHAVIOR_SHARED_DIRECTION) {
@@ -52,7 +62,7 @@ static Result configure_pairs_for_mode(SolenoidBehaviorMode mode) {
     }
 
     for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
-        Result r = solenoidSystem.configurePair(i, configs[i]);
+        Result r = controller.configurePair(i, configs[i]);
         if (r != RES_OK) {
             log_error("Failed to configure pair");
             return r;
@@ -60,12 +70,6 @@ static Result configure_pairs_for_mode(SolenoidBehaviorMode mode) {
     }
 
     return RES_OK;
-}
-
-static void reset_pair_state(PairState pairState[]) {
-    for (uint8_t p = 1; p <= SOLENOID_PAIR_COUNT; ++p) {
-        pairState[p] = PAIR_IDLE;
-    }
 }
 
 static Result select_behavior_from_config() {
@@ -99,23 +103,14 @@ static Result select_behavior_from_config() {
 // ------------------------------------------------------
 // Public API
 // ------------------------------------------------------
-Result solenoid_behavior_init(PairState pairState[]) {
-    if (!pairState) return RES_PARAM;
-
-    reset_pair_state(pairState);
+Result solenoid_behavior_init(SolenoidSystemController& controller) {
+    activeController = &controller;
 
     Result r = select_behavior_from_config();
     if (r != RES_OK) return r;
 
-    // Initialize the solenoid system controller
-    r = solenoidSystem.begin();
-    if (r != RES_OK) {
-        log_error("Failed to initialize solenoid system");
-        return r;
-    }
-
     // Configure pairs based on selected scenario
-    r = configure_pairs_for_mode(activeBehavior->mode);
+    r = configure_pairs_for_mode(activeBehavior->mode, controller);
     if (r != RES_OK) {
         log_error("Failed to configure pairs for mode");
         return r;
@@ -134,12 +129,14 @@ SolenoidBehaviorMode solenoid_behavior_current_mode() {
     return activeBehavior->mode;
 }
 
-Result solenoid_behavior_press(uint8_t pair, int8_t dir, PairState pairState[], bool *activated) {
-    if (!activeBehavior) return RES_ERR;
-    return activeBehavior->press(pair, dir, pairState, activated);
+Result solenoid_behavior_press(uint8_t pairIndex, SolenoidPairState state) {
+    if (!activeBehavior || !activeController) return RES_ERR;
+    if (!is_valid_pair_index(pairIndex) || !is_drive_state(state)) return RES_PARAM;
+    return activeBehavior->press(*activeController, pairIndex, state);
 }
 
-Result solenoid_behavior_release(uint8_t pair, int8_t dir, PairState pairState[], bool *released) {
-    if (!activeBehavior) return RES_ERR;
-    return activeBehavior->release(pair, dir, pairState, released);
+Result solenoid_behavior_release(uint8_t pairIndex, SolenoidPairState state) {
+    if (!activeBehavior || !activeController) return RES_ERR;
+    if (!is_valid_pair_index(pairIndex) || !is_drive_state(state)) return RES_PARAM;
+    return activeBehavior->release(*activeController, pairIndex, state);
 }

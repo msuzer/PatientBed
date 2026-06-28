@@ -11,6 +11,7 @@
 #include "pca9685.h"
 #include "pins.h"
 #include "solenoid_behavior.h"
+#include "solenoid_system_controller.h"
 
 // ---------------------------------------------------------
 // Config: battery + charger thresholds
@@ -49,18 +50,21 @@ static const int16_t VBAT_LOG_SIGNIFICANT_DELTA_mV = 500; // log if changed >= 0
 
 struct KeyBinding {
     uint8_t keyId; // keypad event id (0..49)
-    uint8_t pair;  // solenoid pair 1..8
-    int8_t dir;    // +1 = forward, -1 = backward
+    uint8_t pairIndex;
+    SolenoidPairState state;
 };
 
-static KeyBinding keyBindings[16] = {
-    {KEY_ID_SOL1_F, 1, +1}, {KEY_ID_SOL1_B, 1, -1}, {KEY_ID_SOL2_F, 2, +1},
-    {KEY_ID_SOL2_B, 2, -1}, {KEY_ID_SOL3_F, 3, +1}, {KEY_ID_SOL3_B, 3, -1},
-    {KEY_ID_SOL4_F, 4, +1}, {KEY_ID_SOL4_B, 4, -1}, {KEY_ID_SOL5_F, 5, +1},
-    {KEY_ID_SOL5_B, 5, -1}, {KEY_ID_SOL6_F, 6, +1}, {KEY_ID_SOL6_B, 6, -1},
-    {KEY_ID_SOL7_F, 7, +1}, {KEY_ID_SOL7_B, 7, -1}, {KEY_ID_SOL8_F, 8, +1},
-    {KEY_ID_SOL8_B, 8, -1},
+static KeyBinding keyBindings[] = {
+    {KEY_ID_SOL1_F, 0, SolenoidPairState::FORWARD}, {KEY_ID_SOL1_B, 0, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL2_F, 1, SolenoidPairState::FORWARD}, {KEY_ID_SOL2_B, 1, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL3_F, 2, SolenoidPairState::FORWARD}, {KEY_ID_SOL3_B, 2, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL4_F, 3, SolenoidPairState::FORWARD}, {KEY_ID_SOL4_B, 3, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL5_F, 4, SolenoidPairState::FORWARD}, {KEY_ID_SOL5_B, 4, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL6_F, 5, SolenoidPairState::FORWARD}, {KEY_ID_SOL6_B, 5, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL7_F, 6, SolenoidPairState::FORWARD}, {KEY_ID_SOL7_B, 6, SolenoidPairState::BACKWARD},
+    {KEY_ID_SOL8_F, 7, SolenoidPairState::FORWARD}, {KEY_ID_SOL8_B, 7, SolenoidPairState::BACKWARD},
 };
+static const uint8_t KEY_BINDING_COUNT = sizeof(keyBindings) / sizeof(keyBindings[0]);
 
 // ---------------------------------------------------------
 // Alive LED modes
@@ -84,11 +88,11 @@ enum BatteryStatus {
 };
 
 // Track which bindings we actually “accepted” on press
-static bool keyAccepted[16] = {false};
+static bool keyAccepted[KEY_BINDING_COUNT] = {false};
 
-PairState pairState[SOLENOID_PAIR_COUNT + 1] = {PAIR_IDLE}; // index 1..SOLENOID_PAIR_COUNT used
+static SolenoidSystemController solenoidSystem;
 
-const uint8_t keypadPins[10] = {PIN_KB_A0, PIN_KB_B4, PIN_KB_A1, PIN_KB_B3, PIN_KB_A2, 
+const uint8_t keypadPins[] = {PIN_KB_A0, PIN_KB_B4, PIN_KB_A1, PIN_KB_B3, PIN_KB_A2,
     PIN_KB_B2, PIN_KB_A3, PIN_KB_B1, PIN_KB_A4, PIN_KB_B0};
 
 JapaneseKeypad keypad(keypadPins);
@@ -106,7 +110,8 @@ static bool parse_key_id(const char *text, uint8_t *outKeyId);
 static void handle_binding_press(uint8_t bindIndex);
 static void handle_binding_release(uint8_t bindIndex);
 static void handle_key_event(uint8_t keyIndex, bool pressed);
-static void buzzer_for_key(uint8_t pair, int8_t dir, bool press);
+static void buzzer_for_key(uint8_t pairIndex, SolenoidPairState state, bool press);
+static const char *pair_state_name(SolenoidPairState state);
 static void battery_log_request(BatteryStatus status, int16_t vbat_mV);
 
 static void die_on_fatal_error() {
@@ -118,6 +123,24 @@ static void die_on_fatal_error() {
     }
 }
 
+void init_GPIOs() {
+    // Initialize GPIOs for solenoid system controller
+    hal_gpio_mode(PIN_MAIN_PUMP_SOLENOID, OUTPUT);
+    hal_gpio_write(PIN_MAIN_PUMP_SOLENOID, LOW);
+
+    hal_gpio_mode(PIN_CHARGE_RELAY, OUTPUT);
+    hal_gpio_write(PIN_CHARGE_RELAY, LOW);
+
+    hal_gpio_mode(PIN_PCA_OE, OUTPUT);
+    hal_gpio_write(PIN_PCA_OE, HIGH); // Disable PCA9685 outputs initially
+
+    hal_gpio_mode(PIN_LED_STATUS, OUTPUT);
+    hal_gpio_write(PIN_LED_STATUS, LOW); // Turn off status LED initially
+
+    hal_gpio_mode(PIN_BUZZER, OUTPUT);
+    hal_gpio_write(PIN_BUZZER, LOW); // Turn off buzzer initially
+}
+
 // =========================================================
 // app_init
 // =========================================================
@@ -126,23 +149,15 @@ void app_init() {
     logger_setLevel((LogLevel)LOG_DEFAULT_LEVEL);
     log_info(F("System boot"));
 
+    init_GPIOs();
+    log_info(F("IO initialized"));
+
     // Buzzer
     buzzer_init(PIN_BUZZER);
     log_info(F("Buzzer initialized"));
 
     // Alive LED
-    hal_gpio_mode(PIN_LED_STATUS, OUTPUT);
-    hal_gpio_write(PIN_LED_STATUS, false);
     ledMode = LED_MODE_NORMAL;
-
-    // Charger relay
-    hal_gpio_mode(PIN_CHARGE_RELAY, OUTPUT);
-    hal_gpio_write(PIN_CHARGE_RELAY, false);
-    log_info(F("IO initialized"));
-
-    // PCA9685 output enable is owned by app startup, not the controller.
-    hal_gpio_mode(PIN_PCA_OE, OUTPUT);
-    hal_gpio_write(PIN_PCA_OE, LOW);
 
     keypad.begin();
     keypad.setCallback(handle_key_event);
@@ -161,15 +176,15 @@ void app_init() {
     log_info(F("Battery monitor initialized"));
 
     // Solenoids (includes PCA9685 + main pump solenoid setup)
-    if (solenoid_init() != RES_OK) {
-        log_fatal("solenoid_init failed");
+    if (solenoidSystem.begin() != RES_OK) {
+        log_fatal("Solenoid system init failed");
         ledMode = LED_MODE_ERROR;
         die_on_fatal_error();
     }
     
     log_info(F("Solenoid system initialized"));
 
-    if (solenoid_behavior_init(pairState) != RES_OK) {
+    if (solenoid_behavior_init(solenoidSystem) != RES_OK) {
         log_fatal("solenoid_behavior_init failed");
         ledMode = LED_MODE_ERROR;
         die_on_fatal_error();
@@ -177,6 +192,10 @@ void app_init() {
 
     buzzer_play(BUZ_PAT_TRIPLE);
     log_info(F("App init complete"));
+
+    // Enable PCA9685 outputs (active low) here after all initialization is complete.
+    // This prevents any spurious solenoid activation during startup.
+    hal_gpio_write(PIN_PCA_OE, LOW);
 }
 
 // =========================================================
@@ -214,7 +233,7 @@ static void handle_key_event(uint8_t keyIndex, bool pressed) {
 }
 
 static int find_binding_for_key(uint8_t keyId) {
-    for (int i = 0; i < 16; ++i) {
+    for (uint8_t i = 0; i < KEY_BINDING_COUNT; ++i) {
         if (keyBindings[i].keyId == keyId) return i;
     }
     return -1;
@@ -330,13 +349,17 @@ static void handle_binding_press(uint8_t bindIndex) {
         return; // Placeholder not yet configured
     }
 
-    uint8_t pair = b.pair;
-    int8_t dir = b.dir;
+    uint8_t pairIndex = b.pairIndex;
+    SolenoidPairState state = b.state;
 
-    if (pair < 1 || pair > SOLENOID_PAIR_COUNT) return;
+    if (pairIndex >= SOLENOID_PAIR_COUNT) return;
 
-    bool activated = false;
-    Result r = solenoid_behavior_press(pair, dir, pairState, &activated);
+    Result r = solenoid_behavior_press(pairIndex, state);
+    if (r == RES_NOOP) {
+        keyAccepted[bindIndex] = false;
+        return;
+    }
+
     if (r != RES_OK) {
         log_error(F("solenoid activation failed"));
         ledMode = LED_MODE_ERROR;
@@ -344,18 +367,13 @@ static void handle_binding_press(uint8_t bindIndex) {
         return;
     }
 
-    if (!activated) {
-        keyAccepted[bindIndex] = false;
-        return;
-    }
-
     keyAccepted[bindIndex] = true;
 
     char buffer[16];
-    snprintf(buffer, sizeof(buffer), "Sol%d %s", pair, (dir > 0) ? "FWD" : "BWD");
+    snprintf(buffer, sizeof(buffer), "Sol%d %s", pairIndex + 1, pair_state_name(state));
     log_info(buffer);
 
-    buzzer_for_key(pair, dir, true);
+    buzzer_for_key(pairIndex, state, true);
 }
 
 // Release logic: undo only if we accepted this key on press
@@ -365,40 +383,39 @@ static void handle_binding_release(uint8_t bindIndex) {
     }
 
     KeyBinding &b = keyBindings[bindIndex];
-    uint8_t pair = b.pair;
-    int8_t dir = b.dir;
+    uint8_t pairIndex = b.pairIndex;
+    SolenoidPairState state = b.state;
 
-    if (pair < 1 || pair > SOLENOID_PAIR_COUNT) return;
+    if (pairIndex >= SOLENOID_PAIR_COUNT) return;
 
-    bool released = false;
-    Result r = solenoid_behavior_release(pair, dir, pairState, &released);
+    Result r = solenoid_behavior_release(pairIndex, state);
+    if (r == RES_NOOP) {
+        keyAccepted[bindIndex] = false;
+        return;
+    }
+
     if (r != RES_OK) {
         log_error(F("solenoid release failed"));
         ledMode = LED_MODE_ERROR;
         return;
     }
 
-    if (!released) {
-        keyAccepted[bindIndex] = false;
-        return;
-    }
-
     keyAccepted[bindIndex] = false;
 
     char buffer[16];
-    snprintf(buffer, sizeof(buffer), "Sol%d IDLE", pair);
+    snprintf(buffer, sizeof(buffer), "Sol%d IDLE", pairIndex + 1);
     log_info(buffer);
 
-    buzzer_for_key(pair, dir, false);
+    buzzer_for_key(pairIndex, state, false);
 }
 
 // ----------------------------------------------------------
 // Buzzer mapping for keys
 // ----------------------------------------------------------
-static void buzzer_for_key(uint8_t /*pair*/, int8_t dir, bool press) {
+static void buzzer_for_key(uint8_t /*pairIndex*/, SolenoidPairState state, bool press) {
     if (buzzer_isBusy()) return;
 
-    if (dir > 0) {
+    if (state == SolenoidPairState::FORWARD) {
         // Forward side
         if (press) {
             // Two short beeps
@@ -406,7 +423,7 @@ static void buzzer_for_key(uint8_t /*pair*/, int8_t dir, bool press) {
         } else {
             buzzer_play(BUZ_PAT_CLICK);
         }
-    } else {
+    } else if (state == SolenoidPairState::BACKWARD) {
         // Backward side
         if (press) {
             // Dot-dash to distinguish reverse
@@ -414,6 +431,18 @@ static void buzzer_for_key(uint8_t /*pair*/, int8_t dir, bool press) {
         } else {
             buzzer_play(BUZ_PAT_CLICK);
         }
+    }
+}
+
+static const char *pair_state_name(SolenoidPairState state) {
+    switch (state) {
+        case SolenoidPairState::FORWARD:
+            return "FWD";
+        case SolenoidPairState::BACKWARD:
+            return "BWD";
+        case SolenoidPairState::OFF:
+        default:
+            return "IDLE";
     }
 }
 

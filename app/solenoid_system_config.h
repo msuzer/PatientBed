@@ -5,7 +5,7 @@
 // Pair configurations for each scenario mode
 // ======================================================
 
-// Classic scenario: pairs 1-7 are work pairs (complementary)
+// Classic scenario: pairs 1-8 are work pairs (complementary)
 // All pairs can operate independently
 static const PairConfig CLASSIC_PAIR_CONFIG[SOLENOID_PAIR_COUNT] = {
     // Pair 1

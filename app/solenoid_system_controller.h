@@ -43,6 +43,12 @@ enum class PairMode : uint8_t {
     MIRRORED        // both channels driven together (same command)
 };
 
+enum class SolenoidPairState : uint8_t {
+    OFF = 0,
+    FORWARD,
+    BACKWARD
+};
+
 // ======================================================
 // PairConfig: Channel mapping + mode for each pair
 // ======================================================
@@ -57,8 +63,11 @@ struct PairConfig {
 // ======================================================
 class SolenoidSystemController {
 public:
-    // Initialize the system and configure all pairs
-    // Must be called once at startup
+    SolenoidSystemController();
+
+    // Initialize PCA9685 outputs and reset controller state.
+    // app_main initializes shared GPIO directions before begin(); repeating
+    // GPIO setup in lower-level modules is harmless if ownership changes later.
     Result begin();
 
     // Configure a single pair
@@ -66,16 +75,18 @@ public:
     // config: channels and mode
     // Returns error if index out of range or channels invalid
     Result configurePair(uint8_t pairIndex, const PairConfig& config);
+    Result clearPair(uint8_t pairIndex);
+    Result clearAllPairs();
 
-    // Set pair state based on direction
+    // Set pair state
     // pair: 0 to SOLENOID_PAIR_COUNT-1
-    // direction: +1 forward, -1 backward, 0 stop
-    // Returns error if pair not configured, direction invalid, or I2C fails
+    // state: OFF, FORWARD, or BACKWARD
+    // Returns error if pair not configured, state invalid, or I2C fails
     // Automatically updates main pump based on active pairs
-    Result setPairState(uint8_t pairIndex, int8_t direction);
+    Result setPairState(uint8_t pairIndex, SolenoidPairState state);
 
     // Get current pair state
-    int8_t getPairState(uint8_t pairIndex) const;
+    SolenoidPairState getPairState(uint8_t pairIndex) const;
 
     // Check if any pair is active
     bool hasAnyActivePair() const;
@@ -83,14 +94,24 @@ public:
     // Check if pair is configured and valid
     bool isPairConfigured(uint8_t pairIndex) const;
 
+    bool isPairIdle(uint8_t pairIndex) const;
+
     // Manual main pump update (called automatically by setPairState)
     // Public for explicit control if needed
     Result updateMainPump();
 
-    // Turn off all pairs and main pump
+    // Turn off configured pairs through the normal per-pair path
+    Result setAllPairsOff();
+
+    // Turn off all PCA9685 channels and main pump immediately
+    Result emergencyAllOff();
+
+    // Backward-compatible alias for emergencyAllOff.
     Result allOff();
 
 private:
+    static const uint8_t kUnassignedChannel = 0xFF;
+
     // Main pump GPIO control
     // Manages PIN_MAIN_PUMP_SOLENOID
     Result updateMainPumpGPIO();
@@ -104,17 +125,17 @@ private:
     // Validate pair index
     bool isValidPairIndex(uint8_t pairIndex) const;
 
+    bool isAssignedChannel(uint8_t channel) const;
+    bool isChannelUsedByOtherPair(uint8_t pairIndex, uint8_t channel) const;
+    void resetPairConfig();
+
+    Result applyComplementaryPair(const PairConfig& config, SolenoidPairState state);
+    Result applyMirroredPair(const PairConfig& config, SolenoidPairState state);
+
     // Configuration storage
     PairConfig pairConfigs[SOLENOID_PAIR_COUNT];
-    bool pairConfigured[SOLENOID_PAIR_COUNT];
 
     // State tracking - moved from solenoid_core
     bool sol_state[SOLENOID_CHANNEL_COUNT];  // per-channel on/off state
-    int8_t pairState[SOLENOID_PAIR_COUNT];   // 0=off, 1=fwd, -1=bwd
+    SolenoidPairState pairState[SOLENOID_PAIR_COUNT];
 };
-
-// Global singleton instance
-extern SolenoidSystemController solenoidSystem;
-
-// Backward-compatible init wrapper used by app_main.
-Result solenoid_init();
