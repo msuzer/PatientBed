@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <Arduino.h>
-#include "solenoid.h"
+#include "solenoid_system_controller.h"
 
 enum SolenoidBehaviorMode : uint8_t {
 	SOL_BEHAVIOR_CLASSIC_PAIRS = 0,

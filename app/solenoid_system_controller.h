@@ -1,10 +1,39 @@
 #pragma once
 #include <stdint.h>
 #include "result.h"
-#include "solenoid.h"
 #include "hal_gpio.h"
 #include "pca9685.h"
 #include "pins.h"
+
+#ifndef SOLENOID_CHANNEL_COUNT
+#define SOLENOID_CHANNEL_COUNT 16
+#endif
+
+#ifndef SOLENOID_PAIR_COUNT
+#define SOLENOID_PAIR_COUNT (SOLENOID_CHANNEL_COUNT / 2)
+#endif
+
+// ------------------------------------------------------
+// Channel definitions
+// ------------------------------------------------------
+enum SolenoidChannel : uint8_t {
+    SOL1F = 0,
+    SOL1B = 1,
+    SOL2F = 2,
+    SOL2B = 3,
+    SOL3F = 4,
+    SOL3B = 5,
+    SOL4F = 6,
+    SOL4B = 7,
+    SOL5F = 8,
+    SOL5B = 9,
+    SOL6F = 10,
+    SOL6B = 11,
+    SOL7F = 12,
+    SOL7B = 13,
+    SOL8F = 14,
+    SOL8B = 15
+};
 
 // ======================================================
 // PairMode: How paired channels operate together
@@ -61,24 +90,13 @@ public:
     // Turn off all pairs and main pump
     Result allOff();
 
-    // Set pair conflict policy (complementary pairs cannot both be on)
-    Result setPairConflictPolicy(bool enabled);
-
 private:
-    // Main pump automation: turn on if any pair active, off if all idle
-    Result updateMainPumpInternal();
-
-    // Direct channel control with conflict checking
-    // c: channel index 0-15
-    // on: true to activate, false to deactivate
-    Result solenoid_set_internal(uint8_t c, bool on);
-
     // Main pump GPIO control
-    // Manages PIN_PCA_OE (output enable) and PIN_MAIN_PUMP_SOLENOID
+    // Manages PIN_MAIN_PUMP_SOLENOID
     Result updateMainPumpGPIO();
 
-    // Get forward and backward channels for a pair
-    Result getChannelsForPair(uint8_t pairIndex, uint8_t& fwd, uint8_t& bwd) const;
+    // Direct channel control helper
+    Result setChannelState(uint8_t channel, bool on);
 
     // Validate channel index
     bool isValidChannel(uint8_t channel) const;
@@ -92,11 +110,11 @@ private:
 
     // State tracking - moved from solenoid_core
     bool sol_state[SOLENOID_CHANNEL_COUNT];  // per-channel on/off state
-    int8_t active_count;                     // count of active channels (drives main pump)
-    bool pair_conflict_policy_enabled;       // whether to enforce pair conflicts
     int8_t pairState[SOLENOID_PAIR_COUNT];   // 0=off, 1=fwd, -1=bwd
-    uint8_t activePairCount;                 // count of non-idle pairs
 };
 
 // Global singleton instance
 extern SolenoidSystemController solenoidSystem;
+
+// Backward-compatible init wrapper used by app_main.
+Result solenoid_init();

@@ -1,6 +1,5 @@
 #pragma once
 #include "solenoid_system_controller.h"
-#include "solenoid.h"
 
 // ======================================================
 // Pair configurations for each scenario mode

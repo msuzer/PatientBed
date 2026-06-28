@@ -1,7 +1,6 @@
 #include "solenoid_behavior_module.h"
 #include "solenoid_system_controller.h"
 #include "logger.h"
-#include "solenoid.h"
 
 // Direction pair index (0-based for controller)
 static const uint8_t DIR_PAIR_IDX = SOL_DIRECTION_PAIR_INDEX - 1;
@@ -108,7 +107,6 @@ static Result release(uint8_t pair, int8_t dir, PairState pairState[], bool *rel
 const SolenoidBehaviorOps *solenoid_behavior_shared_ops() {
     static const SolenoidBehaviorOps ops = {
         SOL_BEHAVIOR_SHARED_DIRECTION,
-        false,
         press,
         release,
     };

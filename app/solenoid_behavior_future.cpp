@@ -41,7 +41,6 @@ static Result release(uint8_t pair, int8_t dir, PairState pairState[], bool *rel
 const SolenoidBehaviorOps *solenoid_behavior_future_ops() {
     static const SolenoidBehaviorOps ops = {
         SOL_BEHAVIOR_SCENARIO_FUTURE,
-        true,
         press,
         release,
     };

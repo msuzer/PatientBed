@@ -18,9 +18,6 @@ Result SolenoidSystemController::begin() {
         return r;
     }
 
-    r = hal_gpio_mode(PIN_PCA_OE, OUTPUT);
-    if (r != RES_OK) return r;
-
     r = hal_gpio_mode(PIN_MAIN_PUMP_SOLENOID, OUTPUT);
     if (r != RES_OK) return r;
 
@@ -31,57 +28,37 @@ Result SolenoidSystemController::begin() {
     for (uint8_t i = 0; i < SOLENOID_CHANNEL_COUNT; i++) {
         sol_state[i] = false;
     }
-    active_count = 0;
-    pair_conflict_policy_enabled = true;
-
     // Initialize pair configuration and state
     for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
         pairConfigured[i] = false;
         pairState[i] = 0;  // off
     }
-    activePairCount = 0;
 
     return RES_OK;
 }
-
-// ======================================================
-// Hardware control helpers (moved from solenoid_core)
-// ======================================================
 
 Result SolenoidSystemController::updateMainPumpGPIO() {
-    Result r = hal_gpio_write(PIN_PCA_OE, active_count > 0 ? LOW : HIGH);
-    if (r != RES_OK) return r;
-
-    const bool should_on = (active_count > 0);
-    r = hal_gpio_write(PIN_MAIN_PUMP_SOLENOID, should_on ? HIGH : LOW);
+    const bool should_on = hasAnyActivePair();
+    Result r = hal_gpio_write(PIN_MAIN_PUMP_SOLENOID, should_on ? HIGH : LOW);
     if (r != RES_OK) return r;
 
     return RES_OK;
 }
 
-Result SolenoidSystemController::solenoid_set_internal(uint8_t c, bool on) {
-    const bool was_on = sol_state[c];
-    if (was_on == on) return RES_OK;
-
-    const bool is_forward = ((c % 2) == 0);
-    const uint8_t other_ch = is_forward ? (c + 1) : (c - 1);
-
-    if (pair_conflict_policy_enabled && on && sol_state[other_ch]) {
-        return RES_ERR;
+Result SolenoidSystemController::setChannelState(uint8_t channel, bool on) {
+    if (!isValidChannel(channel)) {
+        return RES_PARAM;
     }
 
-    Result r = pca9685_setChannelState(c, on);
+    if (sol_state[channel] == on) {
+        return RES_OK;
+    }
+
+    Result r = pca9685_setChannelState(channel, on);
     if (r != RES_OK) return r;
 
-    sol_state[c] = on;
-
-    if (on) {
-        if (active_count < SOLENOID_CHANNEL_COUNT) active_count++;
-    } else {
-        if (active_count > 0) active_count--;
-    }
-
-    return updateMainPumpGPIO();
+    sol_state[channel] = on;
+    return RES_OK;
 }
 
 // ======================================================
@@ -127,59 +104,44 @@ Result SolenoidSystemController::setPairState(uint8_t pairIndex, int8_t directio
     uint8_t fwd = config.forwardChannel;
     uint8_t bwd = config.backwardChannel;
 
-    Result r = RES_OK;
-
     if (direction == 0) {
         // Turn off both channels
-        r = solenoid_set_internal(fwd, false);
+        Result r = setChannelState(fwd, false);
         if (r != RES_OK) return r;
-        r = solenoid_set_internal(bwd, false);
+        r = setChannelState(bwd, false);
         if (r != RES_OK) return r;
-
-        if (pairState[pairIndex] != 0) {
-            activePairCount--;
-        }
         pairState[pairIndex] = 0;
 
     } else if (config.mode == PairMode::COMPLEMENTARY) {
         // Opposite channels: turn one on, one off
+        Result r = RES_OK;
         if (direction > 0) {
             // Forward: fwd on, bwd off
-            r = solenoid_set_internal(bwd, false);
+            r = setChannelState(bwd, false);
             if (r != RES_OK) return r;
-            r = solenoid_set_internal(fwd, true);
+            r = setChannelState(fwd, true);
             if (r != RES_OK) return r;
         } else {
             // Backward: fwd off, bwd on
-            r = solenoid_set_internal(fwd, false);
+            r = setChannelState(fwd, false);
             if (r != RES_OK) return r;
-            r = solenoid_set_internal(bwd, true);
+            r = setChannelState(bwd, true);
             if (r != RES_OK) return r;
         }
 
-        if (pairState[pairIndex] == 0) {
-            activePairCount++;
-        }
         pairState[pairIndex] = (direction > 0) ? 1 : -1;
 
     } else if (config.mode == PairMode::MIRRORED) {
         // Both channels together: both on or both off
         bool on = (direction != 0);
-        r = solenoid_set_internal(fwd, on);
+        Result r = setChannelState(fwd, on);
         if (r != RES_OK) return r;
-        r = solenoid_set_internal(bwd, on);
+        r = setChannelState(bwd, on);
         if (r != RES_OK) return r;
-
-        if (on && pairState[pairIndex] == 0) {
-            activePairCount++;
-        } else if (!on && pairState[pairIndex] != 0) {
-            activePairCount--;
-        }
         pairState[pairIndex] = on ? (direction > 0 ? 1 : -1) : 0;
     }
 
-    // Auto-update main pump
-    return updateMainPumpInternal();
+    return updateMainPumpGPIO();
 }
 
 int8_t SolenoidSystemController::getPairState(uint8_t pairIndex) const {
@@ -188,7 +150,12 @@ int8_t SolenoidSystemController::getPairState(uint8_t pairIndex) const {
 }
 
 bool SolenoidSystemController::hasAnyActivePair() const {
-    return activePairCount > 0;
+    for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
+        if (pairState[i] != 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool SolenoidSystemController::isPairConfigured(uint8_t pairIndex) const {
@@ -197,7 +164,7 @@ bool SolenoidSystemController::isPairConfigured(uint8_t pairIndex) const {
 }
 
 Result SolenoidSystemController::updateMainPump() {
-    return updateMainPumpInternal();
+    return updateMainPumpGPIO();
 }
 
 Result SolenoidSystemController::allOff() {
@@ -209,31 +176,13 @@ Result SolenoidSystemController::allOff() {
     for (uint8_t c = 0; c < SOLENOID_CHANNEL_COUNT; c++) {
         sol_state[c] = false;
     }
-    active_count = 0;
 
     // Reset pair state
     for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
         pairState[i] = 0;
     }
-    activePairCount = 0;
 
     return updateMainPumpGPIO();
-}
-
-Result SolenoidSystemController::updateMainPumpInternal() {
-    // Main pump is controlled by solenoid_set() via update_main_pump_solenoid()
-    // in solenoid_core.cpp, so no additional action needed here.
-    // This method is kept for future explicit pump control if needed.
-    return RES_OK;
-}
-
-Result SolenoidSystemController::getChannelsForPair(uint8_t pairIndex, uint8_t& fwd, uint8_t& bwd) const {
-    if (!isPairConfigured(pairIndex)) {
-        return RES_PARAM;
-    }
-    fwd = pairConfigs[pairIndex].forwardChannel;
-    bwd = pairConfigs[pairIndex].backwardChannel;
-    return RES_OK;
 }
 
 bool SolenoidSystemController::isValidChannel(uint8_t channel) const {
@@ -242,11 +191,6 @@ bool SolenoidSystemController::isValidChannel(uint8_t channel) const {
 
 bool SolenoidSystemController::isValidPairIndex(uint8_t pairIndex) const {
     return pairIndex < SOLENOID_PAIR_COUNT;
-}
-
-Result SolenoidSystemController::setPairConflictPolicy(bool enabled) {
-    pair_conflict_policy_enabled = enabled;
-    return RES_OK;
 }
 
 // ======================================================

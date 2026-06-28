@@ -1,7 +1,6 @@
 #include "solenoid_behavior_module.h"
 #include "solenoid_system_controller.h"
 #include "logger.h"
-#include "solenoid.h"
 
 // ------------------------------------------------------
 // Private helpers
@@ -58,7 +57,6 @@ static Result release(uint8_t pair, int8_t dir, PairState pairState[], bool *rel
 const SolenoidBehaviorOps *solenoid_behavior_classic_ops() {
     static const SolenoidBehaviorOps ops = {
         SOL_BEHAVIOR_CLASSIC_PAIRS,
-        true,
         press,
         release,
     };

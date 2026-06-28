@@ -10,7 +10,6 @@
 #include "logger.h"
 #include "pca9685.h"
 #include "pins.h"
-#include "solenoid.h"
 #include "solenoid_behavior.h"
 
 // ---------------------------------------------------------
@@ -140,6 +139,10 @@ void app_init() {
     hal_gpio_mode(PIN_CHARGE_RELAY, OUTPUT);
     hal_gpio_write(PIN_CHARGE_RELAY, false);
     log_info(F("IO initialized"));
+
+    // PCA9685 output enable is owned by app startup, not the controller.
+    hal_gpio_mode(PIN_PCA_OE, OUTPUT);
+    hal_gpio_write(PIN_PCA_OE, LOW);
 
     keypad.begin();
     keypad.setCallback(handle_key_event);

@@ -5,7 +5,6 @@
 #include "solenoid_system_config.h"
 #include "hal_gpio.h"
 #include "logger.h"
-#include "solenoid.h"
 
 // ------------------------------------------------------
 // Private state
@@ -123,9 +122,6 @@ Result solenoid_behavior_init(PairState pairState[]) {
     }
 
     // Set pair conflict policy based on scenario
-    r = solenoidSystem.setPairConflictPolicy(activeBehavior->enforcePairConflict);
-    if (r != RES_OK) return r;
-
     log_info(mode_name(activeBehavior->mode));
     log_info_kv("Solenoid behavior mode", "mode", (int)activeBehavior->mode);
     return RES_OK;

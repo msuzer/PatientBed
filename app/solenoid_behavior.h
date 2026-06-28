@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include "config.h"
 #include "result.h"
-#include "solenoid.h"
 
 enum PairState : uint8_t { PAIR_IDLE = 0, PAIR_FWD, PAIR_BWD };
 
