@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include "solenoid_behavior.h"
 #include "solenoid_behavior_module.h"
+#include "solenoid_system_controller.h"
+#include "solenoid_system_config.h"
 #include "hal_gpio.h"
 #include "logger.h"
 #include "solenoid.h"
@@ -37,6 +39,28 @@ static const char *mode_name(SolenoidBehaviorMode mode) {
         return "SCENARIO_FUTURE";
     }
     return "CLASSIC_PAIRS";
+}
+
+static Result configure_pairs_for_mode(SolenoidBehaviorMode mode) {
+    const PairConfig *configs = nullptr;
+
+    if (mode == SOL_BEHAVIOR_SHARED_DIRECTION) {
+        configs = SHARED_PAIR_CONFIG;
+    } else if (mode == SOL_BEHAVIOR_SCENARIO_FUTURE) {
+        configs = FUTURE_PAIR_CONFIG;
+    } else {
+        configs = CLASSIC_PAIR_CONFIG;
+    }
+
+    for (uint8_t i = 0; i < SOLENOID_PAIR_COUNT; i++) {
+        Result r = solenoidSystem.configurePair(i, configs[i]);
+        if (r != RES_OK) {
+            log_error("Failed to configure pair");
+            return r;
+        }
+    }
+
+    return RES_OK;
 }
 
 static void reset_pair_state(PairState pairState[]) {
@@ -83,6 +107,20 @@ Result solenoid_behavior_init(PairState pairState[]) {
 
     Result r = select_behavior_from_config();
     if (r != RES_OK) return r;
+
+    // Initialize the solenoid system controller
+    r = solenoidSystem.begin();
+    if (r != RES_OK) {
+        log_error("Failed to initialize solenoid system");
+        return r;
+    }
+
+    // Configure pairs based on selected scenario
+    r = configure_pairs_for_mode(activeBehavior->mode);
+    if (r != RES_OK) {
+        log_error("Failed to configure pairs for mode");
+        return r;
+    }
 
     // Conflict protection is declared by the selected behavior module.
     r = solenoid_setPairConflictPolicy(activeBehavior->enforcePairConflict);
