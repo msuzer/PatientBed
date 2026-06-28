@@ -87,7 +87,7 @@ enum BatteryStatus {
 // Track which bindings we actually “accepted” on press
 static bool keyAccepted[16] = {false};
 
-PairState pairState[9] = {PAIR_IDLE}; // index 1..8 used
+PairState pairState[SOLENOID_PAIR_COUNT + 1] = {PAIR_IDLE}; // index 1..SOLENOID_PAIR_COUNT used
 
 const uint8_t keypadPins[10] = {PIN_KB_A0, PIN_KB_B4, PIN_KB_A1, PIN_KB_B3, PIN_KB_A2, 
     PIN_KB_B2, PIN_KB_A3, PIN_KB_B1, PIN_KB_A4, PIN_KB_B0};
@@ -157,7 +157,7 @@ void app_init() {
 
     log_info(F("Battery monitor initialized"));
 
-    // Solenoids (includes PCA9685 + Sol0 setup)
+    // Solenoids (includes PCA9685 + main pump solenoid setup)
     if (solenoid_init() != RES_OK) {
         log_fatal("solenoid_init failed");
         ledMode = LED_MODE_ERROR;

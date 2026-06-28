@@ -15,7 +15,7 @@ battery charging logic, buzzer feedback, and modular HAL/driver architecture.
 ### 🔹 Drivers
 - **Solenoid driver**
   - Controls 8 dual-acting hydraulic valves (Forward/Backward)
-  - Automatic **Sol0 master valve** handling  
+  - Automatic **main pump solenoid** handling  
     → Enables main hydraulic flow whenever any solenoid is active  
     → Turns off when all solenoids rest
   - Prevents F/B conflict on each pair

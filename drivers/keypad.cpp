@@ -1,5 +1,8 @@
 #include "keypad.h"
 
+// ------------------------------------------------------
+// Public API
+// ------------------------------------------------------
 JapaneseKeypad::JapaneseKeypad(const uint8_t *pins)
     : linePins(pins), callback(nullptr), currentRow(0)
 {
@@ -20,25 +23,6 @@ void JapaneseKeypad::begin() {
 
 void JapaneseKeypad::setCallback(void (*cb)(uint8_t keyIndex, bool pressed)) {
     callback = cb;
-}
-
-bool JapaneseKeypad::readLine(uint8_t idx) {
-    return digitalRead(linePins[idx]);  // HIGH = no press, LOW = press
-}
-
-void JapaneseKeypad::writeLine(uint8_t idx, bool value) {
-    // Only drive LOW actively; otherwise keep as INPUT_PULLUP
-    if (value) {
-        pinMode(linePins[idx], INPUT_PULLUP);
-    } else {
-        pinMode(linePins[idx], OUTPUT);
-        digitalWrite(linePins[idx], LOW);
-    }
-}
-
-bool JapaneseKeypad::getKeyState(uint8_t index) {
-    // Return debounced stable state tracked in lastState
-    return lastState[index];
 }
 
 // ISR-friendly: detection only, no delays, no callbacks
@@ -92,6 +76,29 @@ void JapaneseKeypad::dispatch() {
         evtTail = (uint8_t)((evtTail + 1) % EVT_QUEUE_SIZE);
         if (callback) callback(e.id, e.pressed);
     }
+}
+
+// ------------------------------------------------------
+// Private helpers
+// ------------------------------------------------------
+
+bool JapaneseKeypad::readLine(uint8_t idx) {
+    return digitalRead(linePins[idx]);  // HIGH = no press, LOW = press
+}
+
+void JapaneseKeypad::writeLine(uint8_t idx, bool value) {
+    // Only drive LOW actively; otherwise keep as INPUT_PULLUP
+    if (value) {
+        pinMode(linePins[idx], INPUT_PULLUP);
+    } else {
+        pinMode(linePins[idx], OUTPUT);
+        digitalWrite(linePins[idx], LOW);
+    }
+}
+
+bool JapaneseKeypad::getKeyState(uint8_t index) {
+    // Return debounced stable state tracked in lastState
+    return lastState[index];
 }
 
 void JapaneseKeypad::enqueueEvent(uint8_t id, bool pressed) {

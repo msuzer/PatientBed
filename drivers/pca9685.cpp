@@ -107,3 +107,9 @@ Result pca9685_setChannelPWM(uint8_t channel, uint16_t duty) {
 Result pca9685_setChannelState(uint8_t channel, bool on) {
     return pca9685_setChannelPWM(channel, on ? 4095 : 0);
 }
+
+Result pca9685_setAllPinsOff() {
+    // Use ALL_LED registers: ON=0, OFF full-off bit set.
+    uint8_t buf[5] = {PCA9685_ALL_LED_ON_L, 0x00, 0x00, 0x00, 0x10};
+    return hal_twi_write(_i2c_addr, buf, 5);
+}

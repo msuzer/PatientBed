@@ -2,10 +2,9 @@
 #include <stdint.h>
 #include "config.h"
 #include "result.h"
+#include "solenoid.h"
 
 enum PairState : uint8_t { PAIR_IDLE = 0, PAIR_FWD, PAIR_BWD };
-
-static const uint8_t SOLENOID_PAIR_COUNT = 8;
 
 Result solenoid_behavior_init(PairState pairState[]);
 SolenoidBehaviorMode solenoid_behavior_current_mode();

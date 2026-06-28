@@ -3,6 +3,9 @@
 
 #include <Arduino.h>
 
+// ------------------------------------------------------
+// Japanese keypad scanner
+// ------------------------------------------------------
 class JapaneseKeypad {
 public:
     static const uint8_t LINES = 10;
@@ -18,6 +21,9 @@ public:
     void setCallback(void (*cb)(uint8_t keyIndex, bool pressed));
 
 private:
+    // --------------------------------------------------
+    // Private state
+    // --------------------------------------------------
     const uint8_t *linePins;
     void (*callback)(uint8_t keyIndex, bool pressed);
 
@@ -32,6 +38,9 @@ private:
     volatile uint8_t evtHead = 0; // write index (ISR)
     volatile uint8_t evtTail = 0; // read index (main thread)
 
+    // --------------------------------------------------
+    // Private helpers
+    // --------------------------------------------------
     // Internal helpers
     void enqueueEvent(uint8_t id, bool pressed);
     void writeLine(uint8_t idx, bool value);

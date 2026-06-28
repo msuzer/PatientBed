@@ -1,11 +1,11 @@
 #include "battery.h"
 #include "hal_adc.h"
 #include <stdlib.h> // for NULL
-#include <Arduino.h> // for F() in potential logging
 
-// ------------------------------------------
-// Internal configuration
-// ------------------------------------------
+// ------------------------------------------------------
+// Private state/configuration
+// ------------------------------------------------------
+
 static uint8_t _adc_ch = 0;
 
 // Full voltage conversion formula:
@@ -28,7 +28,9 @@ static const float FILTER_ALPHA = 0.10f; // 10% new, 90% old
 static float filtered_vbat = 0.0f; // volts
 static bool initialized = false;
 
-// ------------------------------------------
+// ------------------------------------------------------
+// Public API
+// ------------------------------------------------------
 Result battery_init(uint8_t adc_channel) {
     _adc_ch = adc_channel;
     initialized = false;
@@ -43,10 +45,8 @@ Result battery_init(uint8_t adc_channel) {
     return RES_OK;
 }
 
-// ------------------------------------------
 // Non-blocking periodic update
 // Call every ~10ms
-// ------------------------------------------
 Result battery_poll() {
     if (!initialized) return RES_ERR;
 
@@ -63,7 +63,6 @@ Result battery_poll() {
     return RES_OK;
 }
 
-// ------------------------------------------
 Result battery_getMillivolts(int16_t *out_mV) {
     if (!initialized || out_mV == NULL) return RES_PARAM;
     int32_t mv = (int32_t)(filtered_vbat * 1000.0f);

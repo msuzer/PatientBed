@@ -16,6 +16,10 @@
 
 // LED registers start at 0x06
 #define PCA9685_LED0_ON_L  0x06
+#define PCA9685_ALL_LED_ON_L  0xFA
+#define PCA9685_ALL_LED_ON_H  0xFB
+#define PCA9685_ALL_LED_OFF_L 0xFC
+#define PCA9685_ALL_LED_OFF_H 0xFD
 
 // MODE1 bits
 #define MODE1_SLEEP 0x10
@@ -30,3 +34,4 @@ Result pca9685_setPWMFreq(float freq);
 Result pca9685_setChannelRaw(uint8_t channel, uint16_t on, uint16_t off);
 Result pca9685_setChannelPWM(uint8_t channel, uint16_t duty); // 0–4095
 Result pca9685_setChannelState(uint8_t channel, bool on);
+Result pca9685_setAllPinsOff();

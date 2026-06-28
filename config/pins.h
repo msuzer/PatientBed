@@ -33,7 +33,7 @@ static const uint8_t PIN_LED_STATUS = 13;
 // --------------------------------------------------------
 static const uint8_t PIN_VBAT_ADC = A0;     // PC0 – battery monitor
 static const uint8_t PIN_CHARGE_RELAY = A1; // PC1 – relay via NPN
-static const uint8_t PIN_SOL0_MAIN = A2;    // PC2 – solenoid 0
+static const uint8_t PIN_MAIN_PUMP_SOLENOID = A2; // PC2 – main pump solenoid
 static const uint8_t PIN_PCA_OE = A3;       // PC3 – OE (active low)
 
 // --------------------------------------------------------

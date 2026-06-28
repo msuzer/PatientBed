@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include "result.h"
 
+// ------------------------------------------------------
+// Public API
+// ------------------------------------------------------
 // Call once
 Result battery_init(uint8_t adc_channel);
 
