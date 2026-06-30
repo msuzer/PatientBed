@@ -190,7 +190,6 @@ void app_init() {
         die_on_fatal_error();
     }
 
-    buzzer_play(BUZ_PAT_TRIPLE);
     log_info(F("App init complete"));
 
     // Enable PCA9685 outputs (active low) here after all initialization is complete.

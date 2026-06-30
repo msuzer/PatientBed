@@ -20,44 +20,46 @@ static bool any_work_pair_active(const SolenoidSystemController& controller) {
     return false;
 }
 
-static bool direction_allows_state(SolenoidPairState directionState, SolenoidPairState requestedState) {
-    return directionState == SolenoidPairState::OFF ||
-           directionState == requestedState;
-}
-
 static Result press(SolenoidSystemController& controller, uint8_t pairIndex, SolenoidPairState state) {
     if (pairIndex == DIR_PAIR_IDX) {
         log_info_kv("Reserved direction pair", "pair", DIR_PAIR_IDX + 1);
         return RES_NOOP;
     }
 
-    if (!controller.isPairIdle(pairIndex)) {
-        log_debug("Pair busy");
+    const bool isDirectionReserved = controller.getPairState(DIR_PAIR_IDX) == state;
+    const bool isDirectionPairIdle = controller.isPairIdle(DIR_PAIR_IDX);
+    const bool isWorkPairIdle = controller.isPairIdle(pairIndex);
+
+    if (!isWorkPairIdle) {
+        log_debug("Work pair busy");
         return RES_NOOP;
     }
 
-    const SolenoidPairState directionState = controller.getPairState(DIR_PAIR_IDX);
-    if (!direction_allows_state(directionState, state)) {
+    if (!(isDirectionPairIdle || isDirectionReserved)) {
         log_debug("Direction pair busy");
         return RES_NOOP;
     }
 
-    // Activate work pair (uses MIRRORED mode, so both channels on)
-    Result r = controller.setPairState(pairIndex, state);
-    if (r != RES_OK) return r;
-
     // If direction pair is idle, activate it with same direction
-    if (directionState == SolenoidPairState::OFF) {
-        r = controller.setPairState(DIR_PAIR_IDX, state);
+    if (isDirectionPairIdle) {
+        Result r = controller.setPairState(DIR_PAIR_IDX, state);
         if (r != RES_OK) {
-            // Rollback work pair activation if direction pair fails
-            Result rollback = controller.setPairState(pairIndex, SolenoidPairState::OFF);
-            if (rollback != RES_OK) {
-                log_error("Failed to rollback shared work pair");
-                controller.emergencyAllOff();
-            }
             return r;
         }
+    }
+
+    // Activate work pair (uses MIRRORED mode, so both channels on)
+    Result r = controller.setPairState(pairIndex, state);
+    if (r != RES_OK) {
+        // If work pair activation fails, release direction pair if it was just activated
+        if (isDirectionPairIdle) {
+            Result rollback = controller.setPairState(DIR_PAIR_IDX, SolenoidPairState::OFF);
+            if (rollback != RES_OK) {
+                log_error("Failed to rollback direction pair");
+                controller.emergencyAllOff();
+            }
+        }
+        return r;
     }
 
     return RES_OK;

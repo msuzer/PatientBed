@@ -3,6 +3,7 @@
 #include "solenoid_behavior_module.h"
 #include "solenoid_system_controller.h"
 #include "solenoid_system_config.h"
+#include "buzzer.h"
 #include "hal_gpio.h"
 #include "logger.h"
 
@@ -39,6 +40,16 @@ static const char *mode_name(SolenoidBehaviorMode mode) {
         return "SCENARIO_FUTURE";
     }
     return "CLASSIC_PAIRS";
+}
+
+static uint8_t mode_buzzer_pattern(SolenoidBehaviorMode mode) {
+    if (mode == SOL_BEHAVIOR_SHARED_DIRECTION) {
+        return BUZ_PAT_DOUBLE;
+    }
+    if (mode == SOL_BEHAVIOR_SCENARIO_FUTURE) {
+        return BUZ_PAT_TRIPLE;
+    }
+    return BUZ_PAT_OK;
 }
 
 static bool is_valid_pair_index(uint8_t pairIndex) {
@@ -119,6 +130,7 @@ Result solenoid_behavior_init(SolenoidSystemController& controller) {
     // Set pair conflict policy based on scenario
     log_info(mode_name(activeBehavior->mode));
     log_info_kv("Solenoid behavior mode", "mode", (int)activeBehavior->mode);
+    buzzer_play(mode_buzzer_pattern(activeBehavior->mode));
     return RES_OK;
 }
 
