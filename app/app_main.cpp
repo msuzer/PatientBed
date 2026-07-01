@@ -16,11 +16,11 @@
 // ---------------------------------------------------------
 // Config: battery + charger thresholds
 // ---------------------------------------------------------
-static const int16_t BATTERY_NOT_PRESENT_mV = 15000; // below this, battery likely absent
-static const int16_t BATTERY_PRESENT_mV = 20000; // above this, battery likely present
-static const int16_t VBAT_CHARGE_ON_mV = 24000;  // start charging below this
-static const int16_t VBAT_CHARGE_OFF_mV = 28000; // stop charging above this
-static const int16_t VBAT_LOG_SIGNIFICANT_DELTA_mV = 500; // log if changed >= 0.5V
+static const uint16_t BATTERY_NOT_PRESENT_mV = 15000; // below this, battery likely absent
+static const uint16_t BATTERY_PRESENT_mV = 20000; // above this, battery likely present
+static const uint16_t VBAT_CHARGE_ON_mV = 24000;  // start charging below this
+static const uint16_t VBAT_CHARGE_OFF_mV = 28000; // stop charging above this
+static const uint16_t VBAT_LOG_SIGNIFICANT_DELTA_mV = 500; // log if changed >= 0.5V
 
 // ---------------------------------------------------------
 // Key → solenoid mapping
@@ -112,7 +112,7 @@ static void handle_binding_release(uint8_t bindIndex);
 static void handle_key_event(uint8_t keyIndex, bool pressed);
 static void buzzer_for_key(uint8_t pairIndex, SolenoidPairState state, bool press);
 static const char *pair_state_name(SolenoidPairState state);
-static void battery_log_request(BatteryStatus status, int16_t vbat_mV);
+static void battery_log_request(BatteryStatus status, uint16_t vbat_mV);
 
 static void die_on_fatal_error() {
     ledMode = LED_MODE_ERROR;
@@ -164,8 +164,6 @@ void app_init() {
     log_info(F("Keypad initialized"));
     Serial.println(F("[SER] Ready. Commands: PRESS <id>, RELEASE <id>, P <id>, R <id>, PING, HELP"));
 
-    setup_timer1_10ms();
-
     // Battery monitor
     if (battery_init(PIN_VBAT_ADC) != RES_OK) {
         log_error(F("battery_init failed"));
@@ -190,6 +188,8 @@ void app_init() {
         die_on_fatal_error();
     }
 
+    setup_timer1_10ms();
+
     log_info(F("App init complete"));
 
     // Enable PCA9685 outputs (active low) here after all initialization is complete.
@@ -200,18 +200,26 @@ void app_init() {
 // =========================================================
 // app_loop
 // =========================================================
+// Timer1 Compare Match A ISR: fires every 10 ms.
+// Keep ISR work minimal; app_loop drains pending ticks on the main thread.
+static volatile bool tick10msDue = false;
+
+ISR(TIMER1_COMPA_vect) {
+    tick10msDue = true;
+}
+
 void app_loop() {
     serial_task();
     keypad.dispatch();
     buzzer_task();
     battery_task();
-}
 
-// Timer1 Compare Match A ISR: fires every 10 ms
-ISR(TIMER1_COMPA_vect) {
-    keypad.tick10ms();
-    battery_poll();
-    led_task();
+    if (tick10msDue) {
+        keypad.tick10ms();
+        battery_poll();
+        led_task();
+        tick10msDue = false;
+    }
 }
 
 // =========================================================
@@ -448,21 +456,25 @@ static const char *pair_state_name(SolenoidPairState state) {
 // =========================================================
 // Charger control
 // =========================================================
+static uint16_t abs_diff_u16(uint16_t a, uint16_t b) {
+    return (a >= b) ? (a - b) : (b - a);
+}
+
 static void battery_task() {
-    static int16_t lastVbat_mV = 0;
+    static uint16_t lastVbat_mV = 0;
     static bool chargerOn = false;
     static bool batteryPresent = false;
 
     enum BatteryStatus battStatus = NO_STATUS;
 
-    int16_t vbat_mV = 0;
+    uint16_t vbat_mV = 0;
     if (battery_getMillivolts(&vbat_mV) != RES_OK) {
         log_error(F("battery_getMillivolts failed"));
         return;
     }
 
     // Decide significant logging
-    bool bigChange = (abs(vbat_mV - lastVbat_mV) >= VBAT_LOG_SIGNIFICANT_DELTA_mV);
+    bool bigChange = (abs_diff_u16(vbat_mV, lastVbat_mV) >= VBAT_LOG_SIGNIFICANT_DELTA_mV);
     if (bigChange) {
         battStatus = BAT_STAT_BIG_CHANGE;
     }
@@ -506,7 +518,7 @@ static void battery_task() {
     }
 }
 
-static void battery_log_request(BatteryStatus status, int16_t vbat_mV) {
+static void battery_log_request(BatteryStatus status, uint16_t vbat_mV) {
     switch (status) {
     case BAT_STAT_ABSENT:
         log_warn(F("Battery removed"));
@@ -539,8 +551,8 @@ static void battery_log_request(BatteryStatus status, int16_t vbat_mV) {
 // Error: solid ON
 // =========================================================
 static void led_task() {
-    static volatile uint32_t ledTickCount10ms = 0; // incremented in ISR every 10 ms
-    
+    static uint32_t ledTickCount10ms = 0;
+
     uint16_t ledIntervalMs = 2000;
     if (ledMode == LED_MODE_CHARGING){
         ledIntervalMs = 1000; // faster blink

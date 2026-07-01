@@ -26,16 +26,16 @@ static Result press(SolenoidSystemController& controller, uint8_t pairIndex, Sol
         return RES_NOOP;
     }
 
-    const bool isDirectionReserved = controller.getPairState(DIR_PAIR_IDX) == state;
-    const bool isDirectionPairIdle = controller.isPairIdle(DIR_PAIR_IDX);
     const bool isWorkPairIdle = controller.isPairIdle(pairIndex);
+    const bool isDirectionPairIdle = controller.isPairIdle(DIR_PAIR_IDX);
+    const bool doesDirectionMatch = controller.getPairState(DIR_PAIR_IDX) == state;
 
     if (!isWorkPairIdle) {
         log_debug("Work pair busy");
         return RES_NOOP;
     }
 
-    if (!(isDirectionPairIdle || isDirectionReserved)) {
+    if (!isDirectionPairIdle && !doesDirectionMatch) {
         log_debug("Direction pair busy");
         return RES_NOOP;
     }

@@ -63,11 +63,11 @@ Result battery_poll() {
     return RES_OK;
 }
 
-Result battery_getMillivolts(int16_t *out_mV) {
+Result battery_getMillivolts(uint16_t *out_mV) {
     if (!initialized || out_mV == NULL) return RES_PARAM;
     int32_t mv = (int32_t)(filtered_vbat * 1000.0f);
     if (mv < 0) mv = 0;
-    if (mv > 32767) mv = 32767; // clamp to int16_t
-    *out_mV = (int16_t)mv;
+    if (mv > 65535) mv = 65535; // clamp to uint16_t
+    *out_mV = (uint16_t)mv;
     return RES_OK;
 }

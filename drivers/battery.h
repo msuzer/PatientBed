@@ -12,4 +12,4 @@ Result battery_init(uint8_t adc_channel);
 Result battery_poll();
 
 // Retrieve filtered voltage in millivolts
-Result battery_getMillivolts(int16_t *out_mV);
+Result battery_getMillivolts(uint16_t *out_mV);
