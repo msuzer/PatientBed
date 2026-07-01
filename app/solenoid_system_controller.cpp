@@ -1,9 +1,25 @@
 #include "solenoid_system_controller.h"
+#include <Arduino.h>
+#include "hal_gpio.h"
 #include "logger.h"
+#include "pca9685.h"
+#include "pins.h"
 
 // ======================================================
 // SolenoidSystemController implementation
 // ======================================================
+
+const char *solenoid_pair_state_name(SolenoidPairState state) {
+    switch (state) {
+        case SolenoidPairState::FORWARD:
+            return "FWD";
+        case SolenoidPairState::BACKWARD:
+            return "BWD";
+        case SolenoidPairState::OFF:
+        default:
+            return "IDLE";
+    }
+}
 
 SolenoidSystemController::SolenoidSystemController() {
     for (uint8_t c = 0; c < SOLENOID_CHANNEL_COUNT; c++) {

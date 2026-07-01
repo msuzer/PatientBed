@@ -1,9 +1,6 @@
 #pragma once
 #include <stdint.h>
 #include "result.h"
-#include "hal_gpio.h"
-#include "pca9685.h"
-#include "pins.h"
 
 #ifndef SOLENOID_CHANNEL_COUNT
 #define SOLENOID_CHANNEL_COUNT 16
@@ -48,6 +45,8 @@ enum class SolenoidPairState : uint8_t {
     FORWARD,
     BACKWARD
 };
+
+const char *solenoid_pair_state_name(SolenoidPairState state);
 
 // ======================================================
 // PairConfig: Channel mapping + mode for each pair
