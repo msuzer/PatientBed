@@ -35,3 +35,5 @@
 # platform ini ignore
 .pio
 .vscode
+.agents
+.pio-core
