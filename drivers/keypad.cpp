@@ -1,4 +1,5 @@
 #include "keypad.h"
+#include "hal_gpio.h"
 
 // ------------------------------------------------------
 // Public API
@@ -12,13 +13,13 @@ JapaneseKeypad::JapaneseKeypad(const uint8_t *pins)
 
 void JapaneseKeypad::begin() {
     for (uint8_t i = 0; i < LINES; i++) {
-        writeLine(i, true);
+        releaseLine(i);
     }
 
     delay(200);  // allow keypad to stabilize
 
     currentRow = 0;
-    writeLine(currentRow, false);
+    driveLineLow(currentRow);
 }
 
 void JapaneseKeypad::setCallback(void (*cb)(uint8_t keyIndex, bool pressed)) {
@@ -32,7 +33,7 @@ void JapaneseKeypad::tick10ms() {
     uint8_t base = scannedRow * LINES;
     for (uint8_t col = 0; col < LINES; col++) {
         if (col == scannedRow) continue; // skip diagonal (unreachable)
-        bool pressed = !readLine(col);
+        bool pressed = !sampleLineLevel(col);
         uint8_t idx = base + col;
 
         if (pressed) {
@@ -43,12 +44,12 @@ void JapaneseKeypad::tick10ms() {
     }
 
     // 2) Release current row back to INPUT_PULLUP
-    writeLine(currentRow, true);
+    releaseLine(currentRow);
 
     // 3) Set next row LOW for the next interrupt cycle
     uint8_t nextRow = currentRow + 1;
     if (nextRow >= LINES) nextRow = 0;
-    writeLine(nextRow, false);
+    driveLineLow(nextRow);
     currentRow = nextRow;
 
     // 4) Edge detection for just-scanned row: queue events for dispatcher
@@ -82,18 +83,19 @@ void JapaneseKeypad::dispatch() {
 // Private helpers
 // ------------------------------------------------------
 
-bool JapaneseKeypad::readLine(uint8_t idx) {
-    return digitalRead(linePins[idx]);  // HIGH = no press, LOW = press
+bool JapaneseKeypad::sampleLineLevel(uint8_t idx) {
+    bool lineLevel = true; // fail safe as "not pressed" if GPIO read fails
+    (void)hal_gpio_read(linePins[idx], &lineLevel);
+    return lineLevel;  // HIGH = no press, LOW = press
 }
 
-void JapaneseKeypad::writeLine(uint8_t idx, bool value) {
-    // Only drive LOW actively; otherwise keep as INPUT_PULLUP
-    if (value) {
-        pinMode(linePins[idx], INPUT_PULLUP);
-    } else {
-        pinMode(linePins[idx], OUTPUT);
-        digitalWrite(linePins[idx], LOW);
-    }
+void JapaneseKeypad::releaseLine(uint8_t idx) {
+    (void)hal_gpio_mode(linePins[idx], INPUT_PULLUP);
+}
+
+void JapaneseKeypad::driveLineLow(uint8_t idx) {
+    (void)hal_gpio_mode(linePins[idx], OUTPUT);
+    (void)hal_gpio_write(linePins[idx], false);
 }
 
 bool JapaneseKeypad::getKeyState(uint8_t index) {

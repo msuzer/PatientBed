@@ -43,8 +43,9 @@ private:
     // --------------------------------------------------
     // Internal helpers
     void enqueueEvent(uint8_t id, bool pressed);
-    void writeLine(uint8_t idx, bool value);
-    bool readLine(uint8_t idx);
+    void releaseLine(uint8_t idx);
+    void driveLineLow(uint8_t idx);
+    bool sampleLineLevel(uint8_t idx);
     bool getKeyState(uint8_t index);
 };
 
